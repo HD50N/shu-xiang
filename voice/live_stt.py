@@ -71,6 +71,11 @@ class LiveSTT:
                 logger.info("empty transcript — skipping")
                 return
             logger.info("transcript: %r", transcript)
+            if on_partial_transcript is not None:
+                try:
+                    await on_partial_transcript(transcript)
+                except Exception:
+                    logger.exception("on_partial_transcript handler raised for final transcript")
             await queue.put(transcript)
 
         async def _handle_partial(wav_bytes: bytes, seq: int) -> None:

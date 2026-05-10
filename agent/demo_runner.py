@@ -64,7 +64,7 @@ from agent.i18n import (
     t,
 )
 from agent.pacing import DemoPacing, get_pacing
-from agent.speech import speak_text
+from agent.speech import speak_text, stop_speech
 from agent.state import DemoState
 
 
@@ -203,13 +203,12 @@ class DemoRunner:
           4. Hide opening prompt — IL SOS form revealed underneath
           5. Open the sidebar with the transcript and field values
         """
-        # Beat 1: opening prompt full-screen
-        opening_prompt = t("opening_prompt", self.language)
-        await show_opening_prompt(self.page, opening_prompt)
-        await speak_text(self.page, opening_prompt, language=self.language)
-        await asyncio.sleep(self.pacing.opening_prompt_hold_s)
-
         if self.config.use_live_voice:
+            # Live mode lets the phase-1 conversation ask the business question.
+            # Keep this screen neutral so the user does not hear the same prompt twice.
+            await show_opening_prompt(self.page, t("overlay_mic_ready", self.language))
+            await asyncio.sleep(0.3)
+
             # LIVE MODE — Phase 1 multi-turn conversation.
             # The user clicks the mic, agent asks 4 questions one at a time,
             # Sonnet incrementally fills the BusinessProfile + LLCSchema.
@@ -221,7 +220,6 @@ class DemoRunner:
                 kind="info",
                 duration_ms=4500,
             )
-            self._speak_background(live_voice_text)
             try:
                 profile, raw = await run_phase1_conversation(
                     self.page,
@@ -242,6 +240,12 @@ class DemoRunner:
                 self.state.business_profile = DEMO_PROFILE
                 transcript_zh = t("demo_sentence", self.language)
         else:
+            # Beat 1: opening prompt full-screen
+            opening_prompt = t("opening_prompt", self.language)
+            await show_opening_prompt(self.page, opening_prompt)
+            await speak_text(self.page, opening_prompt, language=self.language)
+            await asyncio.sleep(self.pacing.opening_prompt_hold_s)
+
             # RECORDING MODE: seed + typewriter the hardcoded sentence.
             self.state.seed_with_demo_data()
             await type_opening_transcript(
@@ -814,6 +818,8 @@ class DemoRunner:
                     # in inject.js calls this Python coroutine.
                     async def toggle_mic_handler():
                         new_muted = self.live_stt.toggle()
+                        if not new_muted:
+                            await stop_speech(self.page)
                         await set_mic_state_visual(self.page, new_muted)
                         logger.info("toggleMic → muted=%s", new_muted)
                         return new_muted

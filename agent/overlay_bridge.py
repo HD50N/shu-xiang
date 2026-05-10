@@ -124,24 +124,14 @@ async def type_opening_transcript(page: Page, full_text: str, per_char_ms: int) 
 
 
 async def update_live_transcript(page: Page, partial_text: str) -> None:
-    """Replace the visible transcript-so-far in the opening prompt card.
+    """Replace the visible transcript-so-far in the bottom strip/opening card.
 
     Called from the live-STT partial dispatcher to give the user real-time
-    feedback as they speak (before they click mute to finalize). Bypasses the
-    typewriter — just sets textContent directly on the existing span.
-    No-op if the opening prompt isn't visible (e.g., during Phase 2)."""
+    feedback as they speak (before they click mute to finalize)."""
     await page.evaluate(
         """(t) => {
-            const wrap = document.querySelector('.shuxiang-opening-transcript');
-            if (!wrap) return;
-            const cursor = wrap.querySelector('.shuxiang-opening-transcript-cursor');
-            let span = wrap.querySelector('span:not(.shuxiang-opening-transcript-cursor)');
-            if (!span) {
-                span = document.createElement('span');
-                if (cursor) wrap.insertBefore(span, cursor);
-                else wrap.appendChild(span);
-            }
-            span.textContent = t;
+            window.shuxiang.updateLiveTranscript &&
+                window.shuxiang.updateLiveTranscript({ speaker: "user", text: t });
         }""",
         partial_text,
     )
