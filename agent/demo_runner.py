@@ -10,6 +10,7 @@ This is the entry point invoked by main.py.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -29,7 +30,7 @@ from corpus import (
     REG1_START_URL,
     get_in_flow_pause_field,
 )
-from corpus.requirements import DEMO_PROFILE, requirements_for_profile
+from corpus.requirements import BusinessProfile, DEMO_PROFILE, requirements_for_profile
 from voice.scripted import DEMO_SCRIPT, feed_voice_queue
 
 from agent.clarification import run_clarification
@@ -149,10 +150,39 @@ class DemoRunner:
             speak_text(self.page, text, language=self.language, audio_key=audio_key)
         )
 
+    def _web_handoff_profile(self) -> dict | None:
+        raw = os.environ.get("SHUXIANG_WEB_HANDOFF_JSON")
+        if not raw:
+            return None
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.exception("invalid SHUXIANG_WEB_HANDOFF_JSON")
+            return None
+        fields = payload.get("fields") if isinstance(payload, dict) else None
+        return fields if isinstance(fields, dict) else None
+
+    def _business_profile_from_handoff(self, raw: dict) -> BusinessProfile:
+        return BusinessProfile(
+            entity_name=raw.get("entity_name"),
+            business_type=raw.get("business_type"),
+            city=raw.get("city") or raw.get("principal_city"),
+            state=raw.get("state") or "IL",
+            sole_owner=raw.get("sole_owner"),
+            plans_to_hire=raw.get("plans_to_hire"),
+            sells_food=raw.get("sells_food"),
+            sells_alcohol=raw.get("sells_alcohol"),
+            online_only=raw.get("online_only"),
+            different_dba=raw.get("different_dba"),
+        )
+
     # ─── Stage runners ──────────────────────────────────────────────
 
     async def _stage_language_selection(self) -> None:
         """First live-voice beat: ask which language to use, then localize."""
+        if self._web_handoff_profile() is not None:
+            logger.info("web handoff detected; skipping in-browser language selection")
+            return
         if not self.config.use_live_voice or self.live_stt is None:
             return
 
@@ -203,7 +233,20 @@ class DemoRunner:
           4. Hide opening prompt — IL SOS form revealed underneath
           5. Open the sidebar with the transcript and field values
         """
-        if self.config.use_live_voice:
+        handoff_profile = self._web_handoff_profile()
+        if handoff_profile is not None:
+            self.state.schema.update_from(handoff_profile)
+            self.state.business_profile = self._business_profile_from_handoff(handoff_profile)
+            transcript_zh = self.state.schema.entity_name or t("demo_sentence", self.language)
+            await show_opening_prompt(self.page, t("overlay_thinking", self.language))
+            await update_live_transcript(self.page, transcript_zh)
+            await speak_text(
+                self.page,
+                t("language_selected", self.language, selected_language=language_display_name(self.language)),
+                language=self.language,
+            )
+            logger.info("web handoff loaded schema: %s", self.state.schema.to_dict())
+        elif self.config.use_live_voice:
             # Live mode lets the phase-1 conversation ask the business question.
             # Keep this screen neutral so the user does not hear the same prompt twice.
             await show_opening_prompt(self.page, t("overlay_mic_ready", self.language))

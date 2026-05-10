@@ -39,6 +39,10 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+.next/
+node_modules/
+web/.next/
+web/node_modules/
 
 # Generated PDFs (we ship the template, not the outputs)
 out/*.pdf
