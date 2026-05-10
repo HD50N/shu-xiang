@@ -77,7 +77,7 @@ _STRINGS_ZH: dict[str, str] = {
     "next_step_toast": "LLC 已提交。下一步是申请 EIN。",
     "pdf_generating": "正在生成双语 PDF 摘要…",
     "pdf_done": "PDF 已生成: {filename}",
-    "closing_message": "完成。你的 LLC 申请摘要和下一步清单已经准备好了。",
+    "closing_message": "12 项义务已识别 · 1 项已提交 · 1 项等待 EIN · 剩余 10 项使用同一套架构",
     "stage_error": "阶段失败: {stage}",
     "real_site_payment_stop": "已到达付款页面 ($150) — 演示在此停止",
     "real_site_submit_stop": "已到达提交确认页面 — 演示在此停止 (避免真实付款)",
@@ -99,6 +99,14 @@ _STRINGS_ZH: dict[str, str] = {
     "overlay_hour": "约 {n} 小时",
     "overlay_minute": "约 {n} 分钟",
     "overlay_free": "免费",
+    # REG-1 (wow #3 — dependency-recognition beat)
+    "reg1_transition_toast": "下一步:伊利诺伊州税务登记 — 同一个代理人,不同的表格",
+    "reg1_navigating_toast": "正在打开 MyTax Illinois…",
+    "reg1_form_started_toast": "REG-1 表已打开 — 自动填入你的公司信息",
+    "reg1_fein_pause_question": "联邦税号 (Federal EIN)",
+    "reg1_fein_pause_explanation": "你的 LLC 提交后会收到这个号码,通常 1-2 周。收到后我会自动完成这份登记 — 同样的代理人,同样的流程。",
+    "reg1_paused_status": "代理人已暂停 · 等你完成 LLC 提交,我会自动继续",
+    "reg1_closing_message": "12 项义务已识别 · 1 项已提交 · 1 项等待 EIN · 剩余 10 项使用同一套架构",
 }
 
 
@@ -115,7 +123,7 @@ _STRINGS_EN: dict[str, str] = {
     "next_step_toast": "LLC submitted. Next step: apply for an EIN.",
     "pdf_generating": "Generating bilingual PDF summary...",
     "pdf_done": "PDF generated: {filename}",
-    "closing_message": "Done. Your LLC filing summary and next-step checklist are ready.",
+    "closing_message": "12 obligations identified · 1 filed · 1 awaiting EIN · same architecture for the remaining 10",
     "stage_error": "Stage failed: {stage}",
     "real_site_payment_stop": "Reached the payment page ($150). Demo stops here.",
     "real_site_submit_stop": "Reached the submission confirmation page. Demo stops here to avoid real payment.",
@@ -137,6 +145,14 @@ _STRINGS_EN: dict[str, str] = {
     "overlay_hour": "about {n} hour(s)",
     "overlay_minute": "about {n} minute(s)",
     "overlay_free": "free",
+    # REG-1 (wow #3 — dependency-recognition beat)
+    "reg1_transition_toast": "Next: Illinois business registration — same agent, different form",
+    "reg1_navigating_toast": "Opening MyTax Illinois...",
+    "reg1_form_started_toast": "REG-1 opened — filling in your company info",
+    "reg1_fein_pause_question": "Federal EIN",
+    "reg1_fein_pause_explanation": "Your LLC's federal EIN arrives 1-2 weeks after submission. I'll finish this registration automatically once you have it — same agent, same flow.",
+    "reg1_paused_status": "Agent paused · will auto-continue once your LLC is submitted",
+    "reg1_closing_message": "12 obligations identified · 1 filed · 1 awaiting EIN · same architecture for the remaining 10",
 }
 
 
@@ -153,7 +169,7 @@ _STRINGS_KO: dict[str, str] = {
     "next_step_toast": "LLC 제출 완료. 다음 단계는 EIN 신청입니다.",
     "pdf_generating": "이중 언어 PDF 요약을 생성하는 중...",
     "pdf_done": "PDF 생성 완료: {filename}",
-    "closing_message": "완료되었습니다. LLC 제출 요약과 다음 단계 체크리스트가 준비되었습니다.",
+    "closing_message": "12개 의무 식별 · 1개 제출 완료 · 1개 EIN 대기 중 · 나머지 10개도 동일한 아키텍처",
     "stage_error": "단계 실패: {stage}",
     "real_site_payment_stop": "결제 페이지($150)에 도착했습니다. 데모는 여기서 중지합니다.",
     "real_site_submit_stop": "제출 확인 페이지에 도착했습니다. 실제 결제를 피하기 위해 데모를 중지합니다.",
@@ -175,6 +191,14 @@ _STRINGS_KO: dict[str, str] = {
     "overlay_hour": "약 {n}시간",
     "overlay_minute": "약 {n}분",
     "overlay_free": "무료",
+    # REG-1 (wow #3 — dependency-recognition beat)
+    "reg1_transition_toast": "다음: 일리노이주 사업자 등록 — 같은 에이전트, 다른 양식",
+    "reg1_navigating_toast": "MyTax Illinois를 여는 중…",
+    "reg1_form_started_toast": "REG-1 열림 — 회사 정보를 자동으로 입력 중",
+    "reg1_fein_pause_question": "연방 세금 ID (EIN)",
+    "reg1_fein_pause_explanation": "LLC 제출 후 1-2주 안에 EIN을 받게 됩니다. EIN을 받으시면 같은 에이전트, 같은 흐름으로 이 등록을 자동으로 완료합니다.",
+    "reg1_paused_status": "에이전트 일시 중지 · LLC 제출 후 자동으로 계속됩니다",
+    "reg1_closing_message": "12개 의무 식별 · 1개 제출 완료 · 1개 EIN 대기 중 · 나머지 10개도 동일한 아키텍처",
 }
 
 

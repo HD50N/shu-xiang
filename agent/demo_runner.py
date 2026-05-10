@@ -23,6 +23,10 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from corpus import (
     CORPUS_FIELDS,
     FieldKind,
+    REG1_AUTOFILL_FIELDS,
+    REG1_REGISTER_LINK_TEXT,
+    REG1_SEL_FEIN,
+    REG1_START_URL,
     get_in_flow_pause_field,
 )
 from corpus.requirements import DEMO_PROFILE, requirements_for_profile
@@ -43,6 +47,7 @@ from agent.overlay_bridge import (
     show_checklist,
     show_closing,
     show_opening_prompt,
+    show_overlay,
     show_sidebar,
     show_toast,
     type_opening_transcript,
@@ -428,6 +433,205 @@ class DemoRunner:
         except Exception:
             logger.exception("EIN gesture page open failed; skipping")
 
+    async def _fill_reg1_combobox(self, page, selector: str, value: str) -> None:
+        """
+        FAST Enterprises custom combobox on MyTax IL. fill()/type() bypass
+        its selection handler — must click input, wait for ui-autocomplete
+        listbox, then click the matching option. Falls back to keyboard
+        typing + ArrowDown + Enter if the listbox click misses.
+        """
+        # Dismiss any open validation modal first — it intercepts clicks.
+        try:
+            ok_btn = page.locator(
+                'div.ui-dialog button:has-text("OK"), div[role=dialog] button:has-text("OK")'
+            ).first
+            if await ok_btn.is_visible(timeout=300):
+                await ok_btn.click()
+                await asyncio.sleep(0.3)
+        except Exception:
+            pass
+
+        try:
+            await page.click(selector)
+            await asyncio.sleep(0.5)
+            option = page.locator(
+                f'ul.ui-autocomplete:visible li:has-text("{value}")'
+            ).first
+            await option.click(timeout=5000)
+            await asyncio.sleep(0.3)
+        except Exception:
+            logger.warning(
+                "REG-1 combobox %s: listbox click failed, falling back to keyboard",
+                selector,
+            )
+            try:
+                await page.locator(selector).focus()
+                await page.keyboard.type(value, delay=40)
+                await asyncio.sleep(0.5)
+                await page.keyboard.press("ArrowDown")
+                await page.keyboard.press("Enter")
+                await asyncio.sleep(0.3)
+            except Exception:
+                logger.exception("REG-1 combobox %s keyboard fallback also failed", selector)
+
+    async def _stage_reg1_walk(self) -> None:
+        """
+        Wow #3 — dependency-recognition beat. Terminal stage.
+
+        Replaces the older _stage_chained_next_step (IRS EIN gesture) AND
+        absorbs the closing scene. Demonstrates Phase 3 generality (same
+        agent on a 2nd site/form) plus the agent's awareness of cross-
+        filing dependencies, then ENDS the demo in a paused state — the
+        browser stays open, the bilingual annotation stays visible, and a
+        soft "agent paused" toast frames the hold as "waiting on you to
+        finish the LLC filing."
+
+        Sequence:
+          1. Re-surface Phase 2 checklist on LLC tab with item 1 ticked
+             done and item 4 (REG-1) marked active — judge sees the state
+             change before we move tabs.
+          2. Hide checklist, open MyTax IL in a new tab.
+          3. Click Register a New Business → REG-1 wizard loads.
+          4. Autonomously fill Organization Type, Legal Name, DBA.
+          5. Pause at FEIN field with bilingual dependency annotation.
+          6. Show "agent paused" status toast.
+          7. Hold indefinitely — Ctrl+C exits cleanly.
+
+        REG-1 bundles three checklist items (il_business_registration,
+        il_sales_tax, il_withholding) into one filing.
+        """
+        # 1. Re-surface the Phase 2 checklist with the LLC done, REG-1 active.
+        #    This is the "moving on to item 4" beat the user explicitly asked
+        #    for — judge sees the explicit state change before we change tabs.
+        profile = self.state.business_profile or DEMO_PROFILE
+        reqs = requirements_for_profile(profile)
+        items = requirement_items(reqs, self.language)
+        await show_checklist(
+            self.page,
+            items=items,
+            header_zh=t("checklist_header", self.language),
+            subtitle_zh=t("checklist_subtitle", self.language, count=len(items)),
+            summary_zh=t("checklist_summary", self.language),
+            stagger_ms=0,  # instant render — this is a re-surface, not a reveal
+        )
+        await asyncio.sleep(0.4)
+        await set_checklist_item_state(self.page, "il_llc_articles", "done")
+        await asyncio.sleep(0.4)
+        await set_checklist_item_state(self.page, "il_business_registration", "active")
+
+        # 2. Transition voiceover toast on top of the visible checklist.
+        await show_toast(
+            self.page,
+            text_zh=t("reg1_transition_toast", self.language),
+            kind="info",
+            duration_ms=int(self.pacing.reg1_checklist_resurface_hold_s * 1000) or 3000,
+        )
+        await asyncio.sleep(self.pacing.reg1_checklist_resurface_hold_s)
+
+        # 3. Hide checklist, open MyTax in a new tab (no closing scene to follow —
+        #    we stay on this tab for the indefinite pause).
+        try:
+            await hide_checklist(self.page)
+        except Exception:
+            pass
+        await asyncio.sleep(self.pacing.reg1_pre_open_pause_s)
+
+        reg1_page = await self.context.new_page()
+        try:
+            await reg1_page.goto(
+                REG1_START_URL, wait_until="domcontentloaded", timeout=20000
+            )
+            await install_overlay(reg1_page)
+            await set_language(reg1_page, self.language)
+            await asyncio.sleep(self.pacing.reg1_homepage_settle_s)
+
+            # 4. Click "Register a New Business (Form REG-1)".
+            try:
+                await reg1_page.locator(
+                    f'text="{REG1_REGISTER_LINK_TEXT}"'
+                ).first.click(timeout=10000)
+            except Exception:
+                logger.warning("REG-1: exact-text register link missed, trying fallback")
+                await reg1_page.locator(
+                    'a:has-text("Register a New Business")'
+                ).first.click(timeout=8000)
+
+            await asyncio.sleep(self.pacing.reg1_after_register_click_s)
+            await show_toast(
+                reg1_page,
+                text_zh=t("reg1_form_started_toast", self.language),
+                kind="info",
+                duration_ms=3000,
+            )
+            await asyncio.sleep(0.4)
+
+            # 5. Fill autofill fields top-down (Organization Type combobox,
+            #    Legal Name, DBA — FEIN is the stopping point).
+            for f in REG1_AUTOFILL_FIELDS:
+                if f.is_combobox:
+                    await self._fill_reg1_combobox(
+                        reg1_page, f.selector, f.combobox_value
+                    )
+                else:
+                    value = getattr(self.state.schema, f.schema_key, None) or ""
+                    if value:
+                        try:
+                            await reg1_page.fill(f.selector, str(value))
+                        except Exception:
+                            logger.warning(
+                                "REG-1: fill failed on %s (%s)", f.selector, f.label_en
+                            )
+                await asyncio.sleep(self.pacing.reg1_field_stagger_s)
+
+            # 6. THE MOMENT — bilingual dependency annotation on FEIN.
+            ok = await show_overlay(
+                reg1_page,
+                selector=REG1_SEL_FEIN,
+                question=t("reg1_fein_pause_question", self.language),
+                explanation=t("reg1_fein_pause_explanation", self.language),
+                listening_label=None,  # info-only, no listening dots
+            )
+            if not ok:
+                logger.warning(
+                    "REG-1: dependency overlay could not anchor on %s — "
+                    "falling back to toast",
+                    REG1_SEL_FEIN,
+                )
+                await show_toast(
+                    reg1_page,
+                    text_zh=t("reg1_fein_pause_explanation", self.language),
+                    kind="info",
+                    duration_ms=10000,
+                )
+
+            # Brief hold so the annotation lands before the paused toast joins.
+            await asyncio.sleep(self.pacing.reg1_fein_pause_hold_s)
+
+            # 7. "Agent paused — waiting for you" toast. Long duration so it
+            #    persists for the indefinite hold; if it fades after 10 min
+            #    that's fine, the annotation is the primary signal.
+            await show_toast(
+                reg1_page,
+                text_zh=t("reg1_paused_status", self.language),
+                kind="info",
+                duration_ms=600_000,  # 10 min; effectively persistent for any demo
+            )
+
+            logger.info(
+                "REG-1: agent paused indefinitely on FEIN dependency. "
+                "Browser stays open. Ctrl+C to exit."
+            )
+
+            # 8. Indefinite hold — Event().wait() yields cleanly to Ctrl+C.
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                pass
+
+        except Exception:
+            logger.exception("REG-1 walk failed mid-stage")
+            raise
+
     async def _stage_real_site_walk(self) -> None:
         """Live-site path: walk the real IL SOS flow page-by-page."""
         from agent.real_site_runner import walk_real_site
@@ -539,11 +743,12 @@ class DemoRunner:
             if self.config.disable_web_security:
                 launch_args.append("--disable-web-security")
 
-            # Live IL SOS mode needs anti-bot mitigations: real Chrome
-            # channel (not headless shell), AutomationControlled disabled,
-            # and a real-looking user agent. Without these, .gov returns 403.
-            # The mock form path runs fine on stock chromium — only swap
-            # configs when we're actually hitting the live site.
+            # Both target_env modes now touch a live site at some point:
+            # live mode does the full IL SOS walk; mock mode does the REG-1
+            # walk on MyTax IL during the dependency-recognition beat. So
+            # we apply anti-bot mitigations (real Chrome channel, no
+            # AutomationControlled flag, real-looking UA) in both modes.
+            # Without these, .gov sites return 403 or block the form.
             launch_kwargs: dict = {"args": launch_args, "headless": self.config.headless}
             context_kwargs: dict = {"viewport": {"width": 1440, "height": 900}}
 
@@ -553,24 +758,25 @@ class DemoRunner:
             launch_args.extend([
                 "--autoplay-policy=no-user-gesture-required",
                 "--allow-file-access-from-files",  # let Audio() load file:// URLs
+                "--disable-blink-features=AutomationControlled",
             ])
 
+            # Force headed for live mode (IL SOS 403s headless); mock mode
+            # respects the HEADLESS env knob so dev iteration stays fast.
             if self.config.target_env == "live":
-                launch_args.append("--disable-blink-features=AutomationControlled")
-                # Force headed — headless gets 403 from IL SOS
                 launch_kwargs["headless"] = False
-                try:
-                    self.browser = await pw.chromium.launch(channel="chrome", **launch_kwargs)
-                except Exception:
-                    # Fall back to bundled chromium if real Chrome isn't installed
-                    self.browser = await pw.chromium.launch(**launch_kwargs)
-                context_kwargs["user_agent"] = (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) "
-                    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15"
-                )
-                context_kwargs["locale"] = "en-US"
-            else:
+
+            try:
+                self.browser = await pw.chromium.launch(channel="chrome", **launch_kwargs)
+            except Exception:
+                # Fall back to bundled chromium if real Chrome isn't installed
                 self.browser = await pw.chromium.launch(**launch_kwargs)
+
+            context_kwargs["user_agent"] = (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) "
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15"
+            )
+            context_kwargs["locale"] = "en-US"
 
             self.context = await self.browser.new_context(**context_kwargs)
             self.page = await self.context.new_page()
@@ -638,19 +844,19 @@ class DemoRunner:
                     logger.info("live voice ON: mic muted, click the AMBER pill at TOP-RIGHT to unmute")
 
                 if self.config.target_env == "live":
-                    # Three-phase real-site flow:
+                    # Live-site flow:
                     #   pre_flight (Phase 1 conversation)
                     #   obligations_reveal (Phase 2 wow moment)
-                    #   real_site_walk (Phase 3 LLC filing with clarifications)
-                    #   chained_next_step (close-the-loop EIN gesture)
-                    #   pdf + closing
+                    #   real_site_walk (Phase 3 LLC filing — stops at IL SOS payment page)
+                    #   reg1_walk (wow #3 — dependency-recognition on MyTax IL, terminal)
+                    #
+                    # No pdf/closing stages: reg1_walk is terminal and holds
+                    # indefinitely on the FEIN dependency-pause until Ctrl+C.
                     await self._run_stage("language_selection", self._stage_language_selection())
                     await self._run_stage("pre_flight", self._stage_pre_flight())
                     await self._run_stage("obligations_reveal", self._stage_obligations_reveal())
                     await self._run_stage("real_site_walk", self._stage_real_site_walk())
-                    await self._run_stage("chained_next_step", self._stage_chained_next_step())
-                    await self._run_stage("pdf", self._stage_pdf())
-                    await self._run_stage("closing", self._stage_closing())
+                    await self._run_stage("reg1_walk", self._stage_reg1_walk())
                 else:
                     await self._run_stage("language_selection", self._stage_language_selection())
                     await self._run_stage("pre_flight", self._stage_pre_flight())
@@ -659,8 +865,7 @@ class DemoRunner:
                     await self._run_stage(
                         "continue_and_submit", self._stage_continue_and_submit()
                     )
-                    await self._run_stage("pdf", self._stage_pdf())
-                    await self._run_stage("closing", self._stage_closing())
+                    await self._run_stage("reg1_walk", self._stage_reg1_walk())
             finally:
                 # Keep the page open for a beat so the recorder catches the toast.
                 await asyncio.sleep(1.5)

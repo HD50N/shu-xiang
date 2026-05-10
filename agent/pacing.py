@@ -44,6 +44,14 @@ class DemoPacing:
     pdf_generating_toast_s: float       # how long "正在生成..." toast shows
     pdf_done_toast_s: float             # how long "完成!" toast shows
 
+    # REG-1 walk (wow #3 — dependency-recognition beat)
+    reg1_checklist_resurface_hold_s: float  # full-screen checklist re-show with state change → before opening MyTax
+    reg1_pre_open_pause_s: float        # transition toast → before opening new tab
+    reg1_homepage_settle_s: float       # MyTax homepage loaded → click register link
+    reg1_after_register_click_s: float  # click register → form page settles
+    reg1_field_stagger_s: float         # delay between each autofill field
+    reg1_fein_pause_hold_s: float       # bilingual dependency annotation hold before "agent paused" toast appears
+
     # Closing scene (NEW)
     closing_message_hold_s: float       # how long final closing toast holds
 
@@ -64,6 +72,12 @@ PRESET_FAST = DemoPacing(
     post_submit_pause_s=1.0,
     pdf_generating_toast_s=0.0,  # the toast itself has internal duration
     pdf_done_toast_s=0.4,
+    reg1_checklist_resurface_hold_s=0.6,
+    reg1_pre_open_pause_s=0.2,
+    reg1_homepage_settle_s=0.6,
+    reg1_after_register_click_s=0.8,
+    reg1_field_stagger_s=0.3,
+    reg1_fein_pause_hold_s=1.2,
     closing_message_hold_s=0.0,
 )
 
@@ -89,6 +103,13 @@ PRESET_DEMO = DemoPacing(
     # PDF: 5–7s
     pdf_generating_toast_s=2.5,
     pdf_done_toast_s=3.5,
+    # REG-1 walk: ~12-15s before the indefinite pause
+    reg1_checklist_resurface_hold_s=3.0,  # judge SEES item 1 tick done + item 4 active
+    reg1_pre_open_pause_s=0.5,        # quick: hide checklist → open MyTax (compressed per feedback)
+    reg1_homepage_settle_s=1.2,       # judge sees MyTax IL homepage, recognizes new site
+    reg1_after_register_click_s=1.5,  # form loads, judge sees the REG-1 fields
+    reg1_field_stagger_s=0.7,         # readable autofill cascade for 3 fields
+    reg1_fein_pause_hold_s=4.0,       # bilingual annotation lands — then "paused" toast appears, hold indefinite
     # Closing: 3–4s
     closing_message_hold_s=3.5,
 )

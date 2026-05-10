@@ -36,6 +36,8 @@ class LLCSchema:
     organizer_phone: Optional[str] = None
     # Expedited service choice from page 12 in-flow pause
     expedited: Optional[str] = None  # "standard" | "expedited"
+    # Storefront DBA (assumed name) — used by REG-1 sales tax registration
+    dba: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in self.__dict__.items()}

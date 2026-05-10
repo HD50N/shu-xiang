@@ -53,6 +53,8 @@ DEMO_SEED = {
     "registered_agent_address": "123 W Randolph St, Chicago IL 60601",
     "organizer_name": "Wei Zhang",
     "organizer_email": "wei@shuxiangchicago.com",
+    # Storefront brand — used by REG-1 sales tax registration walkthrough
+    "dba": "Shu Xiang Kitchen",
 }
 
 

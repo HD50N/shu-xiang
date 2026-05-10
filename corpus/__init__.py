@@ -18,6 +18,13 @@ from .requirements import (
     Requirement,
     requirements_for_profile,
 )
+from .mytax_il_reg1_corpus import (
+    REG1_AUTOFILL_FIELDS,
+    REGISTER_LINK_TEXT as REG1_REGISTER_LINK_TEXT,
+    ReG1Field,
+    SEL_FEIN as REG1_SEL_FEIN,
+    START_URL as REG1_START_URL,
+)
 
 __all__ = [
     "CORPUS_FIELDS",
@@ -36,4 +43,9 @@ __all__ = [
     "REQUIREMENTS",
     "Requirement",
     "requirements_for_profile",
+    "REG1_AUTOFILL_FIELDS",
+    "REG1_REGISTER_LINK_TEXT",
+    "ReG1Field",
+    "REG1_SEL_FEIN",
+    "REG1_START_URL",
 ]
