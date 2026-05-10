@@ -33,6 +33,7 @@ from agent.overlay_bridge import (
     show_overlay,
 )
 from agent.speech import speak_text
+from agent.voice_questions import answer_if_clarifying_question
 
 
 _AUDIO_CACHE_DIR = Path(__file__).resolve().parent.parent / "assets" / "audio_cache"
@@ -130,24 +131,48 @@ async def run_clarification(
 
     voice_start = time.perf_counter()
 
-    # Wait for the voice answer transcript to land in the queue.
-    try:
-        transcript: str = await asyncio.wait_for(
-            voice_queue.get(), timeout=listen_timeout_s
-        )
-    except asyncio.TimeoutError:
-        await mark_listening(page, "retry")
-        await asyncio.sleep(0.6)
-        await hide_overlay(page)
-        return ClarificationResult(
-            field_key=field.schema_key,
-            value=None,
-            source="miss",
-            voice_to_value_ms=(time.perf_counter() - voice_start) * 1000,
-        )
+    value: Optional[str] = None
+    source = "miss"
+    for attempt in range(3):
+        # Wait for the voice answer transcript to land in the queue.
+        try:
+            transcript: str = await asyncio.wait_for(
+                voice_queue.get(), timeout=listen_timeout_s
+            )
+        except asyncio.TimeoutError:
+            await mark_listening(page, "retry")
+            await asyncio.sleep(0.6)
+            await hide_overlay(page)
+            return ClarificationResult(
+                field_key=field.schema_key,
+                value=None,
+                source="miss",
+                voice_to_value_ms=(time.perf_counter() - voice_start) * 1000,
+            )
 
-    # Regex first; Haiku fallback.
-    value, source = await resolve_enum_answer(field.schema_key, transcript)
+        await mark_listening(page, "thinking")
+        clarification = await answer_if_clarifying_question(
+            transcript,
+            language=language,
+            current_prompt=question,
+            field_name=field.schema_key,
+            explanation=explanation,
+            allowed_values=list(field.enum_values or ()),
+        )
+        if clarification.is_question:
+            if clarification.answer:
+                await speak_text(page, clarification.answer, language=language)
+            await mark_listening(page, "listening")
+            continue
+
+        # Regex first; Haiku fallback.
+        value, source = await resolve_enum_answer(field.schema_key, transcript)
+        if value:
+            break
+        if attempt < 2:
+            await mark_listening(page, "retry")
+            await asyncio.sleep(0.5)
+            await speak_text(page, question, language=language, audio_key=field.schema_key)
     elapsed_ms = (time.perf_counter() - voice_start) * 1000
 
     # Visual feedback before fill.

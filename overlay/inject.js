@@ -16,6 +16,9 @@
 
   const NS = "shuxiang";
   const ROOT_ID = `${NS}-root`;
+  const TRANSCRIPT_TEXT_KEY = `${NS}:liveTranscriptText`;
+  const TRANSCRIPT_ENTRIES_KEY = `${NS}:liveTranscriptEntries`;
+  const TRANSCRIPT_POSITION_KEY = `${NS}:liveTranscriptPosition`;
 
   const TOKENS = {
     ringColor: "#D97706",
@@ -123,6 +126,34 @@
         overflow-y: auto;
       }
       .${NS}-sidebar--visible { opacity: 1; transform: translateX(0); }
+      .${NS}-sidebar--collapsed {
+        width: 48px;
+        padding: 16px 8px;
+        overflow: visible;
+      }
+      .${NS}-sidebar-toggle {
+        position: sticky;
+        top: 0;
+        float: right;
+        width: 28px;
+        height: 28px;
+        border: 1px solid ${TOKENS.cardBorder};
+        border-radius: 999px;
+        background: ${TOKENS.cardBg};
+        color: ${TOKENS.textSecondary};
+        box-shadow: ${TOKENS.cardShadow};
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+        z-index: 1;
+      }
+      .${NS}-sidebar--collapsed .${NS}-sidebar-content {
+        display: none;
+      }
+      .${NS}-sidebar--collapsed .${NS}-sidebar-toggle {
+        float: none;
+        transform: rotate(180deg);
+      }
       .${NS}-sidebar h3 {
         font-size: 12px;
         font-weight: 600;
@@ -182,6 +213,74 @@
         border-color: #FCA5A5;
         color: #991B1B;
       }
+      .${NS}-live-transcript {
+        position: fixed;
+        left: 50%;
+        bottom: max(88px, calc(env(safe-area-inset-bottom, 0px) + 72px));
+        transform: translate(-50%, 8px);
+        z-index: 10003;
+        min-width: 320px;
+        max-width: min(760px, calc(100vw - 48px));
+        max-height: 180px;
+        padding: 12px 16px;
+        border: 1px solid ${TOKENS.cardBorder};
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: ${TOKENS.cardShadow};
+        color: ${TOKENS.textPrimary};
+        font-family: 'Noto Sans SC', -apple-system, sans-serif;
+        font-size: 14px;
+        line-height: 1.45;
+        opacity: 0;
+        cursor: grab;
+        pointer-events: auto;
+        transition: opacity 180ms ease-out, transform 180ms ease-out;
+        user-select: none;
+        overflow: hidden;
+        text-align: left;
+      }
+      .${NS}-live-transcript--dragging {
+        cursor: grabbing;
+        transition: opacity 180ms ease-out;
+      }
+      .${NS}-live-transcript--visible {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+      .${NS}-live-transcript-label {
+        display: block;
+        color: ${TOKENS.textMuted};
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+      }
+      .${NS}-live-transcript-lines {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 142px;
+        overflow-y: auto;
+        padding-right: 4px;
+      }
+      .${NS}-live-transcript-line {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+      }
+      .${NS}-live-transcript-speaker {
+        flex: 0 0 auto;
+        color: ${TOKENS.textMuted};
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+      .${NS}-live-transcript-body {
+        min-width: 0;
+        color: ${TOKENS.textPrimary};
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -227,6 +326,7 @@
     card: null,
     sidebar: null,
     toast: null,
+    liveTranscript: null,
     target: null,
     listeningEl: null,
     lang: "zh",
@@ -240,6 +340,9 @@
       recorded: "已记录",
       retry: "请再说一次",
       recognizing: "识别中…",
+      transcript: "实时转写",
+      transcriptUser: "你",
+      transcriptAgent: "AI",
       extractedFields: "提取字段",
       emptyValue: "—",
       micReady: "麦克风已开启 · 请说话",
@@ -259,6 +362,9 @@
       recorded: "Recorded",
       retry: "Please try again",
       recognizing: "Recognizing...",
+      transcript: "Transcript",
+      transcriptUser: "You",
+      transcriptAgent: "AI",
       extractedFields: "Extracted fields",
       emptyValue: "—",
       micReady: "Microphone is on · please speak",
@@ -297,6 +403,10 @@
     state.customCopy = typeof config === "object" ? normalizeCopy(config.copy) : null;
     if (state.listeningEl) state.listeningEl.textContent = copy().listening;
     if (state.micBtn) setMicState(!state.micBtn.classList.contains(`${NS}-mic-btn--listening`));
+    if (state.liveTranscript) {
+      state.liveTranscript.querySelector(`.${NS}-live-transcript-label`).textContent = copy().transcript;
+      renderTranscriptEntries(state.liveTranscript, readTranscriptEntries());
+    }
   }
 
   function showOverlay({ selector, questionZh, explanationZh, listeningLabelZh }) {
@@ -392,11 +502,17 @@
     const sidebar = document.createElement("aside");
     sidebar.className = `${NS}-sidebar`;
     sidebar.innerHTML = `
-      <h3></h3>
-      <div class="${NS}-transcript"></div>
-      <h3></h3>
-      <div class="${NS}-fields"></div>
+      <button type="button" class="${NS}-sidebar-toggle" aria-label="Collapse sidebar">›</button>
+      <div class="${NS}-sidebar-content">
+        <h3></h3>
+        <div class="${NS}-transcript"></div>
+        <h3></h3>
+        <div class="${NS}-fields"></div>
+      </div>
     `;
+    sidebar.querySelector(`.${NS}-sidebar-toggle`).addEventListener("click", () => {
+      sidebar.classList.toggle(`${NS}-sidebar--collapsed`);
+    });
     const headings = sidebar.querySelectorAll("h3");
     headings[0].textContent = copy().recognizing;
     headings[1].textContent = copy().extractedFields;
@@ -416,6 +532,190 @@
     document.body.appendChild(sidebar);
     state.sidebar = sidebar;
     requestAnimationFrame(() => sidebar.classList.add(`${NS}-sidebar--visible`));
+  }
+
+  function safeSessionGet(key) {
+    try { return window.sessionStorage && window.sessionStorage.getItem(key); }
+    catch (e) { return null; }
+  }
+
+  function safeSessionSet(key, value) {
+    try {
+      if (window.sessionStorage) window.sessionStorage.setItem(key, value);
+    } catch (e) { /* ignore */ }
+  }
+
+  function transcriptSpeakerLabel(speaker) {
+    if (speaker === "agent") return copy().transcriptAgent || "AI";
+    if (speaker === "user") return copy().transcriptUser || "You";
+    return speaker || "";
+  }
+
+  function readTranscriptEntries() {
+    try {
+      const entries = JSON.parse(safeSessionGet(TRANSCRIPT_ENTRIES_KEY) || "[]");
+      if (Array.isArray(entries)) return entries;
+    } catch (e) { /* ignore */ }
+    const legacyText = (safeSessionGet(TRANSCRIPT_TEXT_KEY) || "").trim();
+    return legacyText ? [{ speaker: "user", text: legacyText }] : [];
+  }
+
+  function compactTranscriptEntries(entries) {
+    const latest = {};
+    entries.forEach((entry) => {
+      if (entry && entry.speaker && entry.text) latest[entry.speaker] = entry;
+    });
+    return ["agent", "user"].map((speaker) => latest[speaker]).filter(Boolean);
+  }
+
+  function writeTranscriptEntries(entries) {
+    safeSessionSet(TRANSCRIPT_ENTRIES_KEY, JSON.stringify(compactTranscriptEntries(entries)));
+  }
+
+  function renderTranscriptEntries(el, entries) {
+    const lines = el.querySelector(`.${NS}-live-transcript-lines`);
+    lines.innerHTML = "";
+    compactTranscriptEntries(entries).forEach((entry) => {
+      const row = document.createElement("div");
+      row.className = `${NS}-live-transcript-line`;
+      const speaker = document.createElement("span");
+      speaker.className = `${NS}-live-transcript-speaker`;
+      speaker.textContent = transcriptSpeakerLabel(entry.speaker);
+      const body = document.createElement("span");
+      body.className = `${NS}-live-transcript-body`;
+      body.textContent = entry.text || "";
+      row.appendChild(speaker);
+      row.appendChild(body);
+      lines.appendChild(row);
+    });
+    lines.scrollTop = lines.scrollHeight;
+  }
+
+  function clampTranscriptPosition(left, top, el) {
+    const width = el.offsetWidth || 360;
+    const height = el.offsetHeight || 48;
+    return {
+      left: Math.max(8, Math.min(left, window.innerWidth - width - 8)),
+      top: Math.max(8, Math.min(top, window.innerHeight - height - 8)),
+    };
+  }
+
+  function applyTranscriptPosition(el, position) {
+    if (!position) return;
+    const clamped = clampTranscriptPosition(position.left, position.top, el);
+    el.style.left = `${clamped.left}px`;
+    el.style.top = `${clamped.top}px`;
+    el.style.right = "auto";
+    el.style.bottom = "auto";
+    el.style.transform = "none";
+  }
+
+  function makeTranscriptDraggable(el) {
+    if (el.dataset.dragReady === "true") return;
+    el.dataset.dragReady = "true";
+    let drag = null;
+
+    el.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const rect = el.getBoundingClientRect();
+      drag = {
+        dx: event.clientX - rect.left,
+        dy: event.clientY - rect.top,
+      };
+      el.classList.add(`${NS}-live-transcript--dragging`);
+      el.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    el.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+      const next = clampTranscriptPosition(event.clientX - drag.dx, event.clientY - drag.dy, el);
+      el.style.left = `${next.left}px`;
+      el.style.top = `${next.top}px`;
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+      el.style.transform = "none";
+    });
+
+    const finishDrag = (event) => {
+      if (!drag) return;
+      drag = null;
+      el.classList.remove(`${NS}-live-transcript--dragging`);
+      try { el.releasePointerCapture(event.pointerId); } catch (e) { /* ignore */ }
+      const rect = el.getBoundingClientRect();
+      safeSessionSet(TRANSCRIPT_POSITION_KEY, JSON.stringify({ left: rect.left, top: rect.top }));
+    };
+
+    el.addEventListener("pointerup", finishDrag);
+    el.addEventListener("pointercancel", finishDrag);
+  }
+
+  function ensureLiveTranscript() {
+    installStyles();
+    if (state.liveTranscript && document.documentElement.contains(state.liveTranscript)) {
+      return state.liveTranscript;
+    }
+    const el = document.createElement("div");
+    el.className = `${NS}-live-transcript`;
+    el.innerHTML = `<span class="${NS}-live-transcript-label"></span><div class="${NS}-live-transcript-lines"></div>`;
+    (document.body || document.documentElement).appendChild(el);
+    state.liveTranscript = el;
+    makeTranscriptDraggable(el);
+
+    try {
+      const storedPosition = JSON.parse(safeSessionGet(TRANSCRIPT_POSITION_KEY) || "null");
+      applyTranscriptPosition(el, storedPosition);
+    } catch (e) { /* ignore malformed stored positions */ }
+    return el;
+  }
+
+  function restoreLiveTranscript() {
+    const entries = readTranscriptEntries();
+    if (entries.length) updateLiveTranscript({ entries });
+  }
+
+  function updateLiveTranscript(payload) {
+    const isObject = payload && typeof payload === "object";
+    const value = (isObject ? (payload.text || "") : (payload || "")).trim();
+    const speaker = isObject ? (payload.speaker || "user") : "user";
+    let entries = isObject && Array.isArray(payload.entries) ? payload.entries : readTranscriptEntries();
+    if (value) {
+      entries = compactTranscriptEntries([
+        ...entries.filter((entry) => entry.speaker !== speaker),
+        { speaker, text: value },
+      ]);
+      writeTranscriptEntries(entries);
+      safeSessionSet(TRANSCRIPT_TEXT_KEY, value);
+    }
+    const el = ensureLiveTranscript();
+    el.querySelector(`.${NS}-live-transcript-label`).textContent = copy().transcript;
+    renderTranscriptEntries(el, entries);
+    el.classList.toggle(`${NS}-live-transcript--visible`, entries.length > 0);
+
+    const openingWrap = speaker === "user" ? document.querySelector(`.${NS}-opening-transcript`) : null;
+    if (openingWrap) {
+      const cursor = openingWrap.querySelector(`.${NS}-opening-transcript-cursor`);
+      let span = openingWrap.querySelector(`span:not(.${NS}-opening-transcript-cursor)`);
+      if (!span) {
+        span = document.createElement("span");
+        if (cursor) openingWrap.insertBefore(span, cursor);
+        else openingWrap.appendChild(span);
+      }
+      span.textContent = value;
+    }
+  }
+
+  function stopSpeech() {
+    const audio = window.__shuxiangActiveAudio;
+    if (!audio) return;
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+    } catch (e) { /* ignore */ }
+    if (typeof audio.__shuxiangResolve === "function") {
+      audio.__shuxiangResolve();
+    }
+    window.__shuxiangActiveAudio = null;
   }
 
   // Call with the SCHEMA_KEY (stable), not display label.
@@ -713,6 +1013,8 @@
     btn.querySelector(`.${NS}-mic-label-zh`).textContent = copy().micIdle;
     btn.addEventListener("click", async () => {
       console.log("[shuxiang] mic button clicked, toggleMic=", typeof window.toggleMic);
+      const willStartListening = !btn.classList.contains(`${NS}-mic-btn--listening`);
+      if (willStartListening) stopSpeech();
       if (typeof window.toggleMic === "function") {
         await window.toggleMic();
       } else {
@@ -1014,6 +1316,8 @@
     hideSidebar,
     showToast,
     showOpeningPrompt,
+    updateLiveTranscript,
+    stopSpeech,
     typeOpeningTranscript,
     hideOpeningPrompt,
     typeTranscript,
@@ -1026,4 +1330,10 @@
     hideChecklist,
     TOKENS,
   };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", restoreLiveTranscript, { once: true });
+  } else {
+    restoreLiveTranscript();
+  }
 })();

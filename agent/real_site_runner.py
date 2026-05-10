@@ -52,6 +52,7 @@ from agent.overlay_bridge import (
 from agent.pacing import DemoPacing
 from agent.speech import speak_text
 from agent.state import DemoState
+from agent.voice_questions import answer_if_clarifying_question
 
 logger = logging.getLogger("shuxiang.real_site")
 
@@ -160,19 +161,41 @@ async def _ask_for_schema_value(
 
     await asyncio.sleep(pacing.in_flow_pre_voice_hold_s)
     await speak_text(page, question, language=language)
-    try:
-        transcript = await asyncio.wait_for(state.voice_queue.get(), timeout=timeout_s)
-        logger.info("missing field %s transcript: %r", field_name, transcript)
-    except asyncio.TimeoutError as exc:
-        await mark_listening(page, "retry")
-        await asyncio.sleep(0.5)
-        await hide_overlay(page)
-        raise RuntimeError(f"Timed out waiting for user-provided {field_name}") from exc
 
-    value = await _normalize_spoken_value(field_name, transcript, state)
-    if not value:
+    value = ""
+    for attempt in range(3):
+        try:
+            transcript = await asyncio.wait_for(state.voice_queue.get(), timeout=timeout_s)
+            logger.info("missing field %s transcript: %r", field_name, transcript)
+        except asyncio.TimeoutError as exc:
+            await mark_listening(page, "retry")
+            await asyncio.sleep(0.5)
+            await hide_overlay(page)
+            raise RuntimeError(f"Timed out waiting for user-provided {field_name}") from exc
+
+        await mark_listening(page, "thinking")
+        clarification = await answer_if_clarifying_question(
+            transcript,
+            language=language,
+            current_prompt=question,
+            field_name=field_name,
+            known_context=json.dumps(state.schema.to_dict(), ensure_ascii=False),
+        )
+        if clarification.is_question:
+            if clarification.answer:
+                await speak_text(page, clarification.answer, language=language)
+            await mark_listening(page, "listening")
+            continue
+
+        value = await _normalize_spoken_value(field_name, transcript, state)
+        if value:
+            break
         await mark_listening(page, "retry")
         await asyncio.sleep(0.5)
+        if attempt < 2:
+            await speak_text(page, question, language=language)
+
+    if not value:
         await hide_overlay(page)
         raise RuntimeError(f"Could not extract user-provided {field_name}")
 
@@ -182,6 +205,42 @@ async def _ask_for_schema_value(
     await asyncio.sleep(pacing.in_flow_recorded_hold_s)
     await hide_overlay(page)
     return value
+
+
+async def _wait_for_answer_or_clarify(
+    page: Page,
+    state: DemoState,
+    *,
+    current_prompt: str,
+    field_name: str,
+    explanation: str = "",
+    allowed_values: Optional[list[str]] = None,
+    timeout_s: float = 25.0,
+) -> str:
+    """Wait for an answer; if the user asks a question, answer it and keep listening."""
+    language = getattr(state, "language", "zh")
+    for _ in range(3):
+        try:
+            transcript = await asyncio.wait_for(state.voice_queue.get(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            return ""
+        await mark_listening(page, "thinking")
+        clarification = await answer_if_clarifying_question(
+            transcript,
+            language=language,
+            current_prompt=current_prompt,
+            field_name=field_name,
+            explanation=explanation,
+            allowed_values=allowed_values,
+            known_context=json.dumps(state.schema.to_dict(), ensure_ascii=False),
+        )
+        if clarification.is_question:
+            if clarification.answer:
+                await speak_text(page, clarification.answer, language=language)
+            await mark_listening(page, "listening")
+            continue
+        return transcript
+    return ""
 
 
 @dataclass
@@ -244,22 +303,28 @@ async def handle_entity_choice(
         from corpus import FIELDS_BY_KEY
         field = FIELDS_BY_KEY["llc_type"]
         language = getattr(state, "language", "zh")
+        question = field_question(field, language)
+        explanation = field_explanation(field, language)
         await show_overlay(
             page,
             selector="#llcNo",
-            question=field_question(field, language),
-            explanation=field_explanation(field, language),
+            question=question,
+            explanation=explanation,
         )
         await asyncio.sleep(pacing.in_flow_pre_voice_hold_s)
-        await speak_text(page, field_question(field, language), language=language, audio_key="llc_type")
+        await speak_text(page, question, language=language, audio_key="llc_type")
         await asyncio.sleep(pacing.in_flow_post_audio_pause_s)
         await asyncio.sleep(pacing.in_flow_listening_visible_s)
 
-        try:
-            transcript = await asyncio.wait_for(state.voice_queue.get(), timeout=25.0)
-            logger.info("entity-choice transcript: %r", transcript)
-        except asyncio.TimeoutError:
-            transcript = ""
+        transcript = await _wait_for_answer_or_clarify(
+            page,
+            state,
+            current_prompt=question,
+            field_name=field.schema_key,
+            explanation=explanation,
+            allowed_values=list(field.enum_values or ()),
+        )
+        logger.info("entity-choice transcript: %r", transcript)
 
         # Default standard unless user explicitly says series
         is_series = any(kw in transcript for kw in ("系列", "series"))
@@ -334,15 +399,17 @@ async def handle_provisions_agreement(
     from corpus import FIELDS_BY_KEY
     field = FIELDS_BY_KEY["provisions_agreed"]
     language = getattr(state, "language", "zh")
+    question = field_question(field, language)
+    explanation = field_explanation(field, language)
 
     await show_overlay(
         page,
         selector="#userSelectionYes",
-        question=field_question(field, language),
-        explanation=field_explanation(field, language),
+        question=question,
+        explanation=explanation,
     )
     await asyncio.sleep(pacing.in_flow_pre_voice_hold_s)
-    await speak_text(page, field_question(field, language), language=language, audio_key="provisions_agreed")
+    await speak_text(page, question, language=language, audio_key="provisions_agreed")
     # Capture the money shot: overlay anchored to the REAL radio button.
     try:
         Path("out/live").mkdir(parents=True, exist_ok=True)
@@ -355,10 +422,18 @@ async def handle_provisions_agreement(
     # Wait for the user's transcript (live mic) or the scripted drop.
     timeout_s = 30.0 if use_live_voice else 3.0
     transcript_zh = ""
-    try:
-        transcript_zh = await asyncio.wait_for(state.voice_queue.get(), timeout=timeout_s)
+    transcript_zh = await _wait_for_answer_or_clarify(
+        page,
+        state,
+        current_prompt=question,
+        field_name=field.schema_key,
+        explanation=explanation,
+        allowed_values=list(field.enum_values or ()),
+        timeout_s=timeout_s,
+    )
+    if transcript_zh:
         logger.info("provisions answer transcript: %r", transcript_zh)
-    except asyncio.TimeoutError:
+    else:
         logger.warning("provisions agreement timeout — defaulting to yes")
 
     # Resolve to enum: agree-words = yes, deny-words = no
@@ -464,23 +539,29 @@ async def handle_registered_agent(
         from corpus import FIELDS_BY_KEY
         field = FIELDS_BY_KEY["registered_agent_name"]
         language = getattr(state, "language", "zh")
+        question = field_question(field, language)
+        explanation = field_explanation(field, language)
         await _install_localized_overlay(page, state)
         await show_overlay(
             page,
             selector="#agent",
-            question=field_question(field, language),
-            explanation=field_explanation(field, language),
+            question=question,
+            explanation=explanation,
         )
         await asyncio.sleep(pacing.in_flow_pre_voice_hold_s)
-        await speak_text(page, field_question(field, language), language=language, audio_key="registered_agent_name")
+        await speak_text(page, question, language=language, audio_key="registered_agent_name")
         await asyncio.sleep(pacing.in_flow_post_audio_pause_s)
         await asyncio.sleep(pacing.in_flow_listening_visible_s)
 
-        try:
-            transcript = await asyncio.wait_for(state.voice_queue.get(), timeout=25.0)
-            logger.info("registered-agent transcript: %r", transcript)
-        except asyncio.TimeoutError:
-            transcript = ""
+        transcript = await _wait_for_answer_or_clarify(
+            page,
+            state,
+            current_prompt=question,
+            field_name=field.schema_key,
+            explanation=explanation,
+            allowed_values=list(field.enum_values or ()),
+        )
+        logger.info("registered-agent transcript: %r", transcript)
 
         await mark_listening(page, "recorded")
         await asyncio.sleep(pacing.in_flow_recorded_hold_s)
@@ -635,23 +716,29 @@ async def handle_select_processing(
         from corpus import FIELDS_BY_KEY
         field = FIELDS_BY_KEY["expedited"]
         language = getattr(state, "language", "zh")
+        question = field_question(field, language)
+        explanation = field_explanation(field, language)
         await _install_localized_overlay(page, state)
         await show_overlay(
             page,
             selector="#noRadioButton",
-            question=field_question(field, language),
-            explanation=field_explanation(field, language),
+            question=question,
+            explanation=explanation,
         )
         await asyncio.sleep(pacing.in_flow_pre_voice_hold_s)
-        await speak_text(page, field_question(field, language), language=language, audio_key="expedited")
+        await speak_text(page, question, language=language, audio_key="expedited")
         await asyncio.sleep(pacing.in_flow_post_audio_pause_s)
         await asyncio.sleep(pacing.in_flow_listening_visible_s)
 
-        try:
-            transcript = await asyncio.wait_for(state.voice_queue.get(), timeout=25.0)
-            logger.info("expedited transcript: %r", transcript)
-        except asyncio.TimeoutError:
-            transcript = ""
+        transcript = await _wait_for_answer_or_clarify(
+            page,
+            state,
+            current_prompt=question,
+            field_name=field.schema_key,
+            explanation=explanation,
+            allowed_values=list(field.enum_values or ()),
+        )
+        logger.info("expedited transcript: %r", transcript)
 
         if any(kw in transcript for kw in ("加急", "expedited", "快", "24")):
             chosen = "expedited"
