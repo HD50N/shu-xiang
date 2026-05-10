@@ -25,7 +25,6 @@ Fallbacks:
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import os
@@ -37,6 +36,7 @@ from playwright.async_api import Page
 
 from agent.i18n import Language, localize, t
 from agent.overlay_bridge import type_opening_transcript
+from agent.speech import play_cached_audio, speak_text
 from agent.state import DemoState
 from corpus.requirements import BusinessProfile
 
@@ -234,49 +234,19 @@ async def _intake_turn(
 
 async def _play_audio(page: Page, audio_key: str) -> None:
     """Play a cached mp3 from assets/audio_cache/."""
-    audio_path = _AUDIO_CACHE_DIR / f"{audio_key}.mp3"
-    if not audio_path.exists():
-        logger.warning("audio cache miss: %s (run scripts/precache_question_audio.py)", audio_path)
-        return
-    audio_url = audio_path.as_uri()
-    await page.evaluate(
-        """(url) => new Promise((resolve) => {
-            const a = new Audio(url);
-            a.onended = resolve;
-            a.onerror = resolve;
-            a.play().catch(resolve);
-        })""",
-        audio_url,
-    )
+    await play_cached_audio(page, audio_key)
 
 
 async def _play_audio_bytes(page: Page, mp3_bytes: bytes) -> None:
     """Play mp3 bytes via a base64 data URL — no temp file."""
-    b64 = base64.b64encode(mp3_bytes).decode("ascii")
-    await page.evaluate(
-        """(b64) => new Promise((resolve) => {
-            const url = 'data:audio/mpeg;base64,' + b64;
-            const a = new Audio(url);
-            a.onended = resolve;
-            a.onerror = resolve;
-            a.play().catch(resolve);
-        })""",
-        b64,
-    )
+    from agent.speech import play_audio_bytes
+
+    await play_audio_bytes(page, mp3_bytes)
 
 
 async def _speak_text(page: Page, text: str, *, audio_key: str | None, language: Language) -> None:
     """Use cached Chinese audio when possible; synthesize other languages live."""
-    if language == "zh" and audio_key:
-        await _play_audio(page, audio_key)
-        return
-    try:
-        from voice.elevenlabs_voice import synthesize_to_bytes
-
-        mp3 = await synthesize_to_bytes(text)
-        await _play_audio_bytes(page, mp3)
-    except Exception:
-        logger.exception("TTS failed for %r — text-only this turn", text)
+    await speak_text(page, text, audio_key=audio_key, language=language)
 
 
 async def _set_question_text(page: Page, question_zh: str) -> None:

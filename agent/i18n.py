@@ -338,11 +338,6 @@ def _translate_mapping(items_json: str, target_language: Language, source_langua
     items = json.loads(items_json)
     if target == "zh":
         return dict(items)
-    if target in _BUILTIN_STRINGS:
-        return {
-            key: _translate(text, target, source_language)
-            for key, text in items.items()
-        }
 
     client = _translation_client()
     if client is None:
@@ -389,6 +384,23 @@ def localize(text: str | None, language: Language, source_language: str = "Chine
     return _translate(text, lang, source_language)
 
 
+def localize_mapping(items: dict[str, str], language: Language, source_language: str = "Chinese") -> dict[str, str]:
+    """Translate a group of related strings in one request when needed."""
+    lang = _normalize_language(language)
+    if lang == "zh":
+        return dict(items)
+    if lang in _BUILTIN_STRINGS:
+        return {
+            key: localize(value, lang, source_language)
+            for key, value in items.items()
+        }
+    return _translate_mapping(
+        json.dumps(items, ensure_ascii=False, sort_keys=True),
+        lang,
+        source_language,
+    )
+
+
 def t(key: str, language: Language, **kwargs: Any) -> str:
     lang = _normalize_language(language)
     if lang in _BUILTIN_STRINGS:
@@ -402,6 +414,55 @@ def t(key: str, language: Language, **kwargs: Any) -> str:
 
 def sidebar_label(schema_key: str, fallback: str, language: Language) -> str:
     return localize(SIDEBAR_LABELS_ZH.get(schema_key, fallback), language)
+
+
+_SIDEBAR_LABELS_EN = {
+    "entity_name": "Company name",
+    "principal_address": "Address",
+    "principal_city": "City",
+    "principal_zip": "ZIP code",
+    "management_structure": "Management structure",
+    "duration": "Duration",
+    "registered_agent_name": "Registered agent",
+    "registered_agent_address": "Agent address",
+    "organizer_name": "Organizer",
+    "organizer_email": "Email",
+    "organizer_phone": "Phone",
+}
+
+_SIDEBAR_LABELS_KO = {
+    "entity_name": "회사명",
+    "principal_address": "주소",
+    "principal_city": "도시",
+    "principal_zip": "우편번호",
+    "management_structure": "관리 구조",
+    "duration": "존속 기간",
+    "registered_agent_name": "등록 대리인",
+    "registered_agent_address": "대리인 주소",
+    "organizer_name": "신청자",
+    "organizer_email": "이메일",
+    "organizer_phone": "전화번호",
+}
+
+
+def sidebar_labels(schema_keys: list[tuple[str, str]], language: Language) -> dict[str, str]:
+    """Return localized sidebar labels for many fields with batched translation."""
+    lang = _normalize_language(language)
+    if lang == "en":
+        return {
+            schema_key: _SIDEBAR_LABELS_EN.get(schema_key, fallback)
+            for schema_key, fallback in schema_keys
+        }
+    if lang == "ko":
+        return {
+            schema_key: _SIDEBAR_LABELS_KO.get(schema_key, fallback)
+            for schema_key, fallback in schema_keys
+        }
+    source = {
+        schema_key: SIDEBAR_LABELS_ZH.get(schema_key, fallback)
+        for schema_key, fallback in schema_keys
+    }
+    return localize_mapping(source, language)
 
 
 def field_question(field: FieldSpec, language: Language) -> str:
@@ -423,6 +484,29 @@ def requirement_item(requirement: Requirement, language: Language) -> dict[str, 
         "timeMin": requirement.estimated_time_minutes,
         "costUsd": requirement.estimated_cost_usd,
     }
+
+
+def requirement_items(requirements: list[Requirement], language: Language) -> list[dict[str, Any]]:
+    """Return localized checklist items, batching translation for non-built-in languages."""
+    strings: dict[str, str] = {}
+    for requirement in requirements:
+        strings[f"{requirement.id}.title"] = requirement.title_zh
+        strings[f"{requirement.id}.desc"] = requirement.description_zh
+
+    translated = localize_mapping(strings, language)
+    return [
+        {
+            "id": requirement.id,
+            "titleZh": translated.get(f"{requirement.id}.title", requirement.title_zh),
+            "titleEn": requirement.title_en,
+            "jurisdiction": requirement.jurisdiction,
+            "descZh": translated.get(f"{requirement.id}.desc", requirement.description_zh),
+            "citationUrl": requirement.citation_url,
+            "timeMin": requirement.estimated_time_minutes,
+            "costUsd": requirement.estimated_cost_usd,
+        }
+        for requirement in requirements
+    ]
 
 
 def overlay_copy(language: Language) -> dict[str, str]:

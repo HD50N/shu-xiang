@@ -50,6 +50,7 @@ from agent.overlay_bridge import (
     update_sidebar_field,
 )
 from agent.pacing import DemoPacing
+from agent.speech import speak_text
 from agent.state import DemoState
 
 logger = logging.getLogger("shuxiang.real_site")
@@ -158,6 +159,7 @@ async def _ask_for_schema_value(
         raise RuntimeError(f"Could not anchor missing-field prompt on {selector!r}")
 
     await asyncio.sleep(pacing.in_flow_pre_voice_hold_s)
+    await speak_text(page, question, language=language)
     try:
         transcript = await asyncio.wait_for(state.voice_queue.get(), timeout=timeout_s)
         logger.info("missing field %s transcript: %r", field_name, transcript)
@@ -249,8 +251,7 @@ async def handle_entity_choice(
             explanation=field_explanation(field, language),
         )
         await asyncio.sleep(pacing.in_flow_pre_voice_hold_s)
-        # Play cached question audio (synthesized later by precache script)
-        await _play_cached_audio(page, "llc_type")
+        await speak_text(page, field_question(field, language), language=language, audio_key="llc_type")
         await asyncio.sleep(pacing.in_flow_post_audio_pause_s)
         await asyncio.sleep(pacing.in_flow_listening_visible_s)
 
@@ -341,6 +342,7 @@ async def handle_provisions_agreement(
         explanation=field_explanation(field, language),
     )
     await asyncio.sleep(pacing.in_flow_pre_voice_hold_s)
+    await speak_text(page, field_question(field, language), language=language, audio_key="provisions_agreed")
     # Capture the money shot: overlay anchored to the REAL radio button.
     try:
         Path("out/live").mkdir(parents=True, exist_ok=True)
@@ -470,7 +472,7 @@ async def handle_registered_agent(
             explanation=field_explanation(field, language),
         )
         await asyncio.sleep(pacing.in_flow_pre_voice_hold_s)
-        await _play_cached_audio(page, "registered_agent_name")
+        await speak_text(page, field_question(field, language), language=language, audio_key="registered_agent_name")
         await asyncio.sleep(pacing.in_flow_post_audio_pause_s)
         await asyncio.sleep(pacing.in_flow_listening_visible_s)
 
@@ -641,7 +643,7 @@ async def handle_select_processing(
             explanation=field_explanation(field, language),
         )
         await asyncio.sleep(pacing.in_flow_pre_voice_hold_s)
-        await _play_cached_audio(page, "expedited")
+        await speak_text(page, field_question(field, language), language=language, audio_key="expedited")
         await asyncio.sleep(pacing.in_flow_post_audio_pause_s)
         await asyncio.sleep(pacing.in_flow_listening_visible_s)
 
@@ -924,12 +926,14 @@ async def walk_real_site(
         # changing hands — STOP.
         if "apps.ilsos.gov" not in url:
             logger.info("real-site stop: left ilsos.gov (now at %s)", url)
+            stop_text = t("real_site_payment_stop", getattr(state, "language", "zh"))
             await show_toast(
                 page,
-                text_zh=t("real_site_payment_stop", getattr(state, "language", "zh")),
+                text_zh=stop_text,
                 kind="info",
                 duration_ms=5000,
             )
+            await speak_text(page, stop_text, language=getattr(state, "language", "zh"))
             await asyncio.sleep(3.0)
             break
 
@@ -956,12 +960,14 @@ async def walk_real_site(
         )
         if payment_hit or terminal_btn:
             logger.info("real-site stop: payment_input=%s terminal_btn=%r", payment_hit, terminal_btn)
+            stop_text = t("real_site_submit_stop", getattr(state, "language", "zh"))
             await show_toast(
                 page,
-                text_zh=t("real_site_submit_stop", getattr(state, "language", "zh")),
+                text_zh=stop_text,
                 kind="info",
                 duration_ms=4000,
             )
+            await speak_text(page, stop_text, language=getattr(state, "language", "zh"))
             await asyncio.sleep(2.5)
             break
 
@@ -973,12 +979,14 @@ async def walk_real_site(
 
         if result is None:
             logger.warning("unknown page url=%s — stopping", url)
+            stop_text = t("real_site_unknown_stop", getattr(state, "language", "zh"))
             await show_toast(
                 page,
-                text_zh=t("real_site_unknown_stop", getattr(state, "language", "zh")),
+                text_zh=stop_text,
                 kind="info",
                 duration_ms=3000,
             )
+            await speak_text(page, stop_text, language=getattr(state, "language", "zh"))
             await asyncio.sleep(2.0)
             break
 

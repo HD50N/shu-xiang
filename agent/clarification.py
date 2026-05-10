@@ -32,6 +32,7 @@ from agent.overlay_bridge import (
     mark_listening,
     show_overlay,
 )
+from agent.speech import speak_text
 
 
 _AUDIO_CACHE_DIR = Path(__file__).resolve().parent.parent / "assets" / "audio_cache"
@@ -114,7 +115,7 @@ async def run_clarification(
     # Play the pre-cached Chinese question audio (sub-100ms playback start).
     # Awaits the playback so the listening window opens AFTER the user has
     # heard the question — prevents the user from talking over the prompt.
-    await _play_question_audio(page, field.schema_key)
+    await speak_text(page, question, language=language, audio_key=field.schema_key)
 
     # Pause AFTER the question audio finishes so the judge has time to
     # actually read the bilingual explanation card (recording-mode reads,

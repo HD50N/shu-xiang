@@ -54,11 +54,12 @@ from agent.i18n import (
     language_display_name,
     language_from_utterance,
     language_from_env,
-    requirement_item,
-    sidebar_label,
+    requirement_items,
+    sidebar_labels,
     t,
 )
 from agent.pacing import DemoPacing, get_pacing
+from agent.speech import speak_text
 from agent.state import DemoState
 
 
@@ -136,6 +137,13 @@ class DemoRunner:
         self.page: Optional[Page] = None
         self.live_stt = None  # set up in run() if config.use_live_voice
 
+    def _speak_background(self, text: str, *, audio_key: str | None = None) -> None:
+        if not self.page or not text:
+            return
+        asyncio.create_task(
+            speak_text(self.page, text, language=self.language, audio_key=audio_key)
+        )
+
     # ─── Stage runners ──────────────────────────────────────────────
 
     async def _stage_language_selection(self) -> None:
@@ -149,7 +157,9 @@ class DemoRunner:
         # auto-detect only for this first utterance.
         self.live_stt.set_language_code(None)
         await set_language(self.page, "en")
-        await show_opening_prompt(self.page, t("language_prompt", "en"))
+        language_prompt = t("language_prompt", "en")
+        await show_opening_prompt(self.page, language_prompt)
+        await speak_text(self.page, language_prompt, language="en")
 
         try:
             transcript = await asyncio.wait_for(self.state.voice_queue.get(), timeout=45.0)
@@ -164,12 +174,14 @@ class DemoRunner:
         self.state.language = selected
         self.live_stt.set_language_code(stt_language_code(selected))
         await set_language(self.page, selected)
+        selected_text = t("language_selected", selected, selected_language=language_display_name(selected))
         await show_toast(
             self.page,
-            text_zh=t("language_selected", selected, selected_language=language_display_name(selected)),
+            text_zh=selected_text,
             kind="success",
             duration_ms=2500,
         )
+        await speak_text(self.page, selected_text, language=selected)
         logger.info("language selected from %r → %s", transcript, selected)
         await asyncio.sleep(0.8)
         await hide_opening_prompt(self.page)
@@ -187,7 +199,9 @@ class DemoRunner:
           5. Open the sidebar with the transcript and field values
         """
         # Beat 1: opening prompt full-screen
-        await show_opening_prompt(self.page, t("opening_prompt", self.language))
+        opening_prompt = t("opening_prompt", self.language)
+        await show_opening_prompt(self.page, opening_prompt)
+        await speak_text(self.page, opening_prompt, language=self.language)
         await asyncio.sleep(self.pacing.opening_prompt_hold_s)
 
         if self.config.use_live_voice:
@@ -195,12 +209,14 @@ class DemoRunner:
             # The user clicks the mic, agent asks 4 questions one at a time,
             # Sonnet incrementally fills the BusinessProfile + LLCSchema.
             from agent.preflight_conversation import run_phase1_conversation
+            live_voice_text = t("live_voice_toast", self.language)
             await show_toast(
                 self.page,
-                text_zh=t("live_voice_toast", self.language),
+                text_zh=live_voice_text,
                 kind="info",
                 duration_ms=4500,
             )
+            self._speak_background(live_voice_text)
             try:
                 profile, raw = await run_phase1_conversation(
                     self.page,
@@ -239,13 +255,21 @@ class DemoRunner:
 
         # Beat 5: sidebar with the transcript + extracted-field rows
         sidebar_rows = []
+        sidebar_label_map = sidebar_labels(
+            [
+                (f.schema_key, f.name)
+                for f in CORPUS_FIELDS
+                if f.kind != FieldKind.LOOKUP
+            ],
+            self.language,
+        )
         for f in CORPUS_FIELDS:
             if f.kind == FieldKind.LOOKUP:
                 continue
             value = getattr(self.state.schema, f.schema_key, None) or ""
             sidebar_rows.append({
                 "key": f.schema_key,
-                "labelZh": sidebar_label(f.schema_key, f.name, self.language),
+                "labelZh": sidebar_label_map.get(f.schema_key, f.name),
                 "value": str(value) if value else "",
             })
         await show_sidebar(
@@ -333,15 +357,21 @@ class DemoRunner:
         # Build the profile if Phase 1 didn't (recording mode skips Phase 1)
         profile = self.state.business_profile or DEMO_PROFILE
         reqs = requirements_for_profile(profile)
-        items = [requirement_item(r, self.language) for r in reqs]
+        items = requirement_items(reqs, self.language)
         # Hide the opening prompt sidebar so the checklist is the focus
         await hide_sidebar(self.page)
         await asyncio.sleep(0.2)
 
         # Play the AI's voice-over while the checklist animates in
         if self.config.use_live_voice:
-            from agent.preflight_conversation import _play_audio
-            audio_task = asyncio.create_task(_play_audio(self.page, "phase2_reveal"))
+            checklist_intro = " ".join([
+                t("checklist_header", self.language),
+                t("checklist_subtitle", self.language, count=len(items)),
+                t("checklist_summary", self.language),
+            ])
+            audio_task = asyncio.create_task(
+                speak_text(self.page, checklist_intro, language=self.language, audio_key="phase2_reveal")
+            )
         else:
             audio_task = None
 
@@ -376,18 +406,14 @@ class DemoRunner:
         await asyncio.sleep(0.6)
         await set_checklist_item_state(self.page, "federal_ein", "active")
 
-        if self.config.use_live_voice:
-            from agent.preflight_conversation import _play_audio
-            try:
-                await _play_audio(self.page, "chained_next_ein")
-            except Exception:
-                pass
+        next_step_text = t("next_step_toast", self.language)
         await show_toast(
             self.page,
-            text_zh=t("next_step_toast", self.language),
+            text_zh=next_step_text,
             kind="info",
             duration_ms=4500,
         )
+        self._speak_background(next_step_text, audio_key="chained_next_ein")
         await asyncio.sleep(3.0)
 
         # Open IRS EIN page in a new tab to demonstrate the chain
@@ -445,31 +471,37 @@ class DemoRunner:
 
         # Show generating toast first; let it breathe before kicking off
         # the actual render so the judge sees the cause→effect.
+        pdf_generating_text = t("pdf_generating", self.language)
         await show_toast(
             self.page,
-            text_zh=t("pdf_generating", self.language),
+            text_zh=pdf_generating_text,
             kind="info",
             duration_ms=int(self.pacing.pdf_generating_toast_s * 1000) or 2500,
         )
+        self._speak_background(pdf_generating_text)
         await asyncio.sleep(min(self.pacing.pdf_generating_toast_s, 1.5))
 
         out_path = self.config.pdf_output or Path("out/shuxiang-llc.pdf")
         out_path.parent.mkdir(parents=True, exist_ok=True)
         await generate_bilingual_pdf(self.state.schema, out_path)
 
+        pdf_done_text = t("pdf_done", self.language, filename=out_path.name)
         await show_toast(
             self.page,
-            text_zh=t("pdf_done", self.language, filename=out_path.name),
+            text_zh=pdf_done_text,
             kind="success",
             duration_ms=int(self.pacing.pdf_done_toast_s * 1000) or 4000,
         )
+        self._speak_background(pdf_done_text)
         await asyncio.sleep(self.pacing.pdf_done_toast_s)
 
     async def _stage_closing(self) -> None:
         """Closing scene: full-screen success message in Chinese."""
         if self.pacing.closing_message_hold_s <= 0:
             return
-        await show_closing(self.page, t("closing_message", self.language))
+        closing_text = t("closing_message", self.language)
+        await show_closing(self.page, closing_text)
+        await speak_text(self.page, closing_text, language=self.language)
         await asyncio.sleep(self.pacing.closing_message_hold_s)
 
     # ─── Stage harness ──────────────────────────────────────────────
@@ -487,12 +519,14 @@ class DemoRunner:
             except Exception:
                 pass
             try:
+                error_text = t("stage_error", self.language, stage=name)
                 await show_toast(
                     self.page,
-                    text_zh=t("stage_error", self.language, stage=name),
+                    text_zh=error_text,
                     kind="error",
                     duration_ms=6000,
                 )
+                self._speak_background(error_text)
             except Exception:
                 pass
             raise DemoStageError(name, exc) from exc
