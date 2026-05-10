@@ -180,6 +180,26 @@ DEMO_MODE=live_walkthrough TARGET_ENV=live python main.py
 #         3. Demo continues to payment processor, stops there.
 ```
 
+## Web front door
+
+The user-facing entry point lives in `web/`. It is a Next.js TypeScript app that
+hosts the initial planning conversation: a founder chooses a language, answers
+the high-level business questions by voice or text, gets a structured filing
+packet, and then hands off to the filing destination.
+
+```bash
+cd web
+npm install
+npm run dev
+
+# Optional: override the destination opened by "Continue with Shu Xiang"
+NEXT_PUBLIC_FILING_URL="https://apps.ilsos.gov/llcarticles/" npm run dev
+```
+
+For the hackathon, the web app owns planning and the Python/Playwright demo owns
+execution: once the packet exists, the guided filing session proves the agent
+can operate the live form and ask only form-specific follow-ups.
+
 ## What's NOT done
 
 - Live IL SOS selectors in `corpus.selector_live` (tonight's gate 3).
