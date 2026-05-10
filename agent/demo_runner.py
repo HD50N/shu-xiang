@@ -78,7 +78,7 @@ class DemoConfig:
     headless: bool = False
     disable_web_security: bool = True
     cold_open_stagger_ms: int = 200
-    listen_timeout_s: float = 10.0
+    listen_timeout_s: float = 300.0  # 5 min — generous so narration during demo doesn't auto-continue
     pdf_output: Optional[Path] = None
     use_live_voice: bool = False  # mic capture + Scribe instead of scripted feeder
     language: Language = "zh"
@@ -167,9 +167,9 @@ class DemoRunner:
         await speak_text(self.page, language_prompt, language="en")
 
         try:
-            transcript = await asyncio.wait_for(self.state.voice_queue.get(), timeout=45.0)
+            transcript = await asyncio.wait_for(self.state.voice_queue.get(), timeout=300.0)
         except asyncio.TimeoutError:
-            logger.warning("language selection timed out; defaulting to English")
+            logger.warning("language selection timed out after 5min; defaulting to English")
             transcript = "English"
 
         await update_live_transcript(self.page, transcript)

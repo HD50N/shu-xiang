@@ -87,7 +87,7 @@ def build_clarification_tool(
         )
 
         try:
-            transcript = await asyncio.wait_for(voice_queue.get(), timeout=15.0)
+            transcript = await asyncio.wait_for(voice_queue.get(), timeout=300.0)
         except asyncio.TimeoutError:
             await mark_listening(page, "retry")
             await asyncio.sleep(0.6)

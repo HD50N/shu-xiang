@@ -108,6 +108,8 @@ _STRINGS_ZH: dict[str, str] = {
     "reg1_fein_pause_explanation": "你的 LLC 提交后会收到这个号码,通常 1-2 周。收到后我会自动完成这份登记 — 同样的代理人,同样的流程。",
     "reg1_paused_status": "代理人已暂停 · 等你完成 LLC 提交,我会自动继续",
     "reg1_closing_message": "12 项义务已识别 · 1 项已提交 · 1 项等待 EIN · 剩余 10 项使用同一套架构",
+    # Validation guardrail — spoken when parsed answer doesn't look right
+    "normalize_retry_hint": "我没听清楚 — 能再说一遍吗？",
 }
 
 
@@ -155,6 +157,8 @@ _STRINGS_EN: dict[str, str] = {
     "reg1_fein_pause_explanation": "Your LLC's federal EIN arrives 1-2 weeks after submission. I'll finish this registration automatically once you have it — same agent, same flow.",
     "reg1_paused_status": "Agent paused · will auto-continue once your LLC is submitted",
     "reg1_closing_message": "12 obligations identified · 1 filed · 1 awaiting EIN · same architecture for the remaining 10",
+    # Validation guardrail — spoken when parsed answer doesn't look right
+    "normalize_retry_hint": "I didn't quite catch that — could you say it again?",
 }
 
 
@@ -202,6 +206,8 @@ _STRINGS_KO: dict[str, str] = {
     "reg1_fein_pause_explanation": "LLC 제출 후 1-2주 안에 EIN을 받게 됩니다. EIN을 받으시면 같은 에이전트, 같은 흐름으로 이 등록을 자동으로 완료합니다.",
     "reg1_paused_status": "에이전트 일시 중지 · LLC 제출 후 자동으로 계속됩니다",
     "reg1_closing_message": "12개 의무 식별 · 1개 제출 완료 · 1개 EIN 대기 중 · 나머지 10개도 동일한 아키텍처",
+    # Validation guardrail — spoken when parsed answer doesn't look right
+    "normalize_retry_hint": "잘 들리지 않았어요 — 다시 말씀해 주시겠어요?",
 }
 
 

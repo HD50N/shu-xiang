@@ -73,7 +73,7 @@ async def run_clarification(
     field: FieldSpec,
     target_env: str,
     voice_queue: asyncio.Queue,
-    listen_timeout_s: float = 10.0,
+    listen_timeout_s: float = 300.0,
     *,
     pre_voice_hold_s: float = 0.0,
     post_audio_pause_s: float = 0.0,

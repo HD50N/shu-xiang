@@ -52,7 +52,16 @@ from agent.overlay_bridge import (
 from agent.pacing import DemoPacing
 from agent.speech import speak_text
 from agent.state import DemoState
-from agent.voice_questions import answer_if_clarifying_question
+from agent.voice_questions import (
+    ClarifyingTurn,
+    answer_if_clarifying_question,
+)
+
+
+# Max back-and-forth turns when the user keeps asking clarifying questions
+# before answering. Bumped from 3 so the user can have a real conversation
+# with the AI about what a field means, what option to pick, etc.
+MAX_CLARIFY_TURNS = 8
 
 logger = logging.getLogger("shuxiang.real_site")
 
@@ -71,25 +80,225 @@ def _required(value: Optional[str], field_name: str) -> str:
     raise RuntimeError(f"Missing required user-provided value: {field_name}")
 
 
+_AGENT_SELF_MARKERS = (
+    "我自己", "我来做", "自己做", "我做", "我吧", "myself", "i'll do it",
+    "i will do it", "use me", "use my name", "use my", "me, ",
+)
+_SAME_ADDRESS_MARKERS = (
+    "same", "same address", "same as business", "same as", "一样", "相同", "公司地址",
+    "营业地址", "business address", "같", "동일",
+)
+_FILLER_PREFIXES = (
+    "嗯，", "嗯,", "嗯 ", "好，", "好,", "好 ", "ok，", "ok,", "OK,", "OK，",
+    "well,", "well ", "uh,", "uh ", "um,", "um ",
+)
+
+
+def _strip_filler_prefix(text: str) -> str:
+    cleaned = text
+    # Strip up to two passes of filler ("嗯, OK, 那...")
+    for _ in range(3):
+        before = cleaned
+        for prefix in _FILLER_PREFIXES:
+            if cleaned.lower().startswith(prefix.lower()):
+                cleaned = cleaned[len(prefix):].lstrip()
+                break
+        if cleaned == before:
+            break
+    return cleaned
+
+
+# Tokens that should NEVER appear in a clean form value. If a parsed value
+# contains any of these, treat it as a parse failure and re-prompt the user.
+# These are the conversational fragments that broke the screenshot bug.
+_BAD_VALUE_TOKENS = (
+    # English filler / hedging
+    "ok ", "ok,", "yeah ", "yeah,", "let me", "i'll do", "i don't know",
+    "not sure", "i think", "maybe ", "uhh", "hmm",
+    # Chinese filler / hedging
+    "嗯", "好的", "好,", "好，", "可以", "我做", "自己做", "我吧",
+    "我不知道", "不确定", "不知道", "让我", "等等",
+    # Question markers
+    "?", "？", "！", "...",
+    # Korean filler / hedging
+    "음", "잠깐", "모르겠",
+)
+
+
+def _looks_like_valid_value(field_name: str, value: str) -> tuple[bool, str]:
+    """Heuristic field-aware validation. Returns (is_valid, reason).
+
+    Catches the screenshot-class bug: conversational phrases pasted as
+    literal field values. Combined with the upstream Haiku prompt rule
+    'NEVER make up data', this is the safety net when Haiku slips through
+    a low-quality value.
+    """
+    if not value or len(value.strip()) < 2:
+        return False, "empty or too short"
+
+    lowered = value.lower()
+
+    # Conversational tokens never belong in a form value.
+    for token in _BAD_VALUE_TOKENS:
+        if token in lowered or token in value:
+            return False, f"contains conversational token {token!r}"
+
+    # Field-specific format checks.
+    if "email" in field_name:
+        if "@" not in value or "." not in value:
+            return False, "missing @ or . — doesn't look like an email"
+    elif "phone" in field_name:
+        digits = sum(1 for c in value if c.isdigit())
+        if digits < 7:
+            return False, f"phone needs ≥7 digits, got {digits}"
+    elif "zip" in field_name:
+        digits = sum(1 for c in value if c.isdigit())
+        if digits not in (5, 9):
+            return False, f"zip should be 5 or 9 digits, got {digits}"
+    elif "address" in field_name:
+        # Real addresses contain digits (street numbers) — pure-text 'addresses'
+        # are usually parse junk like 'my home' or 'the office'.
+        if not any(c.isdigit() for c in value):
+            return False, "address has no digits — likely a parse miss"
+        if len(value) < 6:
+            return False, "address too short to be real"
+    elif "name" in field_name:
+        if len(value) > 80:
+            return False, "name unreasonably long — likely captured a sentence"
+
+    return True, ""
+
+
+def _safe_json_parse(raw: str) -> Optional[dict]:
+    """Best-effort JSON parse from Haiku output. Never raises."""
+    try:
+        stripped = raw.strip()
+        if stripped.startswith("```"):
+            lines = stripped.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            stripped = "\n".join(lines).strip()
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start != -1 and end != -1 and end >= start:
+            stripped = stripped[start : end + 1]
+        return json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
 async def _normalize_spoken_value(
     field_name: str,
     transcript: str,
     state: DemoState,
 ) -> str:
-    """Turn a spoken answer into the exact field value to write."""
+    """Turn a spoken answer into the exact form field value.
+
+    Handles three patterns observed in real demos:
+    1. Clean value: 'Wei Zhang' → 'Wei Zhang'
+    2. Reference/intent: '我就自己做吧' (I'll do it myself) → organizer_name from schema;
+       'same as business' / '一样' → principal_address from schema
+    3. Conversational filler: '嗯, OK, 那我就自己做吧' → strip prefix, resolve intent
+
+    Returns empty string when the utterance can't be parsed cleanly so the
+    caller can re-prompt the user. Critically: NEVER returns a conversational
+    phrase as the literal field value (the bug from 2026-05-10 screenshot).
+    """
     text = (transcript or "").strip()
     if not text:
         return ""
 
-    if field_name == "registered_agent_address":
-        lowered = text.lower()
-        same_markers = ("same", "same as business", "same address", "一样", "相同", "같", "동일")
-        if any(marker in lowered or marker in text for marker in same_markers):
-            return state.schema.principal_address or ""
+    schema = state.schema
+    cleaned = _strip_filler_prefix(text)
+    lowered_cleaned = cleaned.lower()
 
+    # === Fast-path reference resolution (works WITHOUT Haiku) ===
+    # The two most common patterns in the real demo. Catching these without
+    # an API call keeps things fast and works even if ANTHROPIC_API_KEY is
+    # unset.
+
+    # Self-reference for agent name → organizer's name from schema.
+    # Heuristic: short utterance that contains a self-marker AND no other
+    # clear proper-noun-ish content. Long utterances may contain both
+    # ("myself, Wei Zhang") so let Haiku handle those.
+    if field_name == "registered_agent_name":
+        has_self = any(m in cleaned or m in lowered_cleaned for m in _AGENT_SELF_MARKERS)
+        if has_self and len(cleaned) < 30 and schema.organizer_name:
+            logger.info(
+                "normalize: self-reference resolved %r → organizer_name=%r",
+                cleaned, schema.organizer_name,
+            )
+            # Schema values are pre-validated, but run through the validator
+            # anyway as a safety net.
+            ok, why = _looks_like_valid_value(field_name, schema.organizer_name)
+            if ok:
+                return schema.organizer_name
+            logger.warning("normalize: schema organizer_name rejected: %s", why)
+
+    # Same-as-business for address fields → principal_address from schema.
+    if "address" in field_name:
+        if any(m in cleaned or m in lowered_cleaned for m in _SAME_ADDRESS_MARKERS):
+            if schema.principal_address:
+                logger.info(
+                    "normalize: same-address resolved %r → principal_address=%r",
+                    cleaned, schema.principal_address,
+                )
+                ok, why = _looks_like_valid_value(field_name, schema.principal_address)
+                if ok:
+                    return schema.principal_address
+                logger.warning("normalize: schema principal_address rejected: %s", why)
+
+    # === Haiku-based parsing for everything else ===
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        return text
+        # Without Haiku, return filler-stripped text only if it passes
+        # validation. Otherwise empty so the caller re-prompts.
+        if not cleaned or (cleaned == text and len(cleaned) < 3):
+            return ""
+        ok, why = _looks_like_valid_value(field_name, cleaned)
+        if not ok:
+            logger.info(
+                "normalize (no-Haiku): rejecting %r for %s — %s",
+                cleaned, field_name, why,
+            )
+            return ""
+        return cleaned
+
+    # Pass relevant schema context so Haiku can resolve references like
+    # "use my name" or "same address" even when fast paths miss.
+    schema_context = {
+        "organizer_name": schema.organizer_name or "",
+        "principal_address": schema.principal_address or "",
+        "principal_city": schema.principal_city or "",
+        "principal_zip": schema.principal_zip or "",
+        "organizer_email": schema.organizer_email or "",
+        "organizer_phone": schema.organizer_phone or "",
+        "entity_name": schema.entity_name or "",
+    }
+
+    system_prompt = (
+        "You parse a user's spoken response into a clean form field value. "
+        "The user is filling out a US business filing form by voice. "
+        "Given a transcript and the target field, return the exact value to write.\n\n"
+        "Resolution rules:\n"
+        "1. Clean value: return as-is. Example: 'Wei Zhang' → 'Wei Zhang'.\n"
+        "2. Strip conversational filler from the start: '嗯, OK, ...', 'well, ...', 'um, ...'.\n"
+        "3. Self-references for agent/organizer name fields: '我自己', 'myself', "
+        "'自己做吧', 'I'll do it myself', 'use my name' → resolve to known organizer_name "
+        "from the schema context. Do NOT return the conversational phrase as the literal value.\n"
+        "4. Same-address references for address fields: 'same as business', "
+        "'一样', '相同' → resolve to known principal_address.\n"
+        "5. Numeric/spoken digits: convert spoken digits ('three one two five five five')"
+        " to digits where the field is a phone or zip.\n"
+        "6. If the utterance is ambiguous, doesn't contain any parseable value, is "
+        "pure filler with no signal, or doesn't match the field type at all (e.g., a "
+        "name spoken when an address was asked), return empty value. The runner will re-prompt.\n"
+        "7. NEVER make up data not present in the transcript or the schema context.\n\n"
+        "Return JSON only, no commentary, no markdown fences:\n"
+        "{\"value\": \"...\"}"
+    )
 
     try:
         from anthropic import AsyncAnthropic
@@ -97,37 +306,47 @@ async def _normalize_spoken_value(
         client = AsyncAnthropic(api_key=api_key)
         msg = await client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=160,
-            system=(
-                "Extract one form field value from a spoken transcript. "
-                "Return JSON only: {\"value\":\"...\"}. Do not invent missing data. "
-                "For email and phone, normalize spoken words like 'at'/'dot' or digits. "
-                "For names and addresses, preserve the user's wording except obvious STT punctuation cleanup."
-            ),
+            max_tokens=200,
+            system=system_prompt,
             messages=[
                 {
                     "role": "user",
                     "content": (
-                        f"Field: {field_name}\n"
-                        f"Transcript: {text}\n"
-                        f"Known business address: {state.schema.principal_address or ''}\n"
+                        f"Target field: {field_name}\n"
+                        f"User transcript: {text}\n"
+                        f"Schema context: {json.dumps(schema_context, ensure_ascii=False)}\n"
                     ),
                 }
             ],
         )
-        for block in msg.content:
-            if block.type == "text":
-                raw = block.text.strip()
-                start = raw.find("{")
-                end = raw.rfind("}")
-                if start != -1 and end != -1:
-                    raw = raw[start : end + 1]
-                parsed = json.loads(raw)
-                value = str(parsed.get("value") or "").strip()
-                return value or text
     except Exception:
-        logger.exception("spoken value normalization failed for %s", field_name)
-    return text
+        logger.exception("normalize Haiku call failed for %s — using cleaned text", field_name)
+        return cleaned
+
+    for block in msg.content:
+        if block.type == "text":
+            parsed = _safe_json_parse(block.text)
+            if parsed is None:
+                logger.warning(
+                    "normalize: malformed JSON for %s utterance=%r — falling back",
+                    field_name, text,
+                )
+                ok, _ = _looks_like_valid_value(field_name, cleaned)
+                return cleaned if ok else ""
+            value = str(parsed.get("value") or "").strip()
+            if not value:
+                logger.info("normalize: %r → ambiguous (Haiku returned empty)", text)
+                return ""
+            ok, why = _looks_like_valid_value(field_name, value)
+            if not ok:
+                logger.warning(
+                    "normalize: Haiku returned %r for %s but validator rejected: %s",
+                    value, field_name, why,
+                )
+                return ""
+            logger.info("normalize: %r → %r (via Haiku)", text, value)
+            return value
+    return ""
 
 
 async def _ask_for_schema_value(
@@ -137,7 +356,7 @@ async def _ask_for_schema_value(
     *,
     field_name: str,
     selector: str,
-    timeout_s: float = 45.0,
+    timeout_s: float = 300.0,
 ) -> str:
     """Ask only when a needed form value is missing at the point of use."""
     existing = getattr(state.schema, field_name, None)
@@ -163,7 +382,15 @@ async def _ask_for_schema_value(
     await speak_text(page, question, language=language)
 
     value = ""
-    for attempt in range(3):
+
+    def _recent_history() -> list[ClarifyingTurn]:
+        recent = state.clarification_history[-8:]
+        return [
+            ClarifyingTurn(user_utterance=t["user"], ai_answer=t["ai"])
+            for t in recent
+        ]
+
+    for attempt in range(MAX_CLARIFY_TURNS):
         try:
             transcript = await asyncio.wait_for(state.voice_queue.get(), timeout=timeout_s)
             logger.info("missing field %s transcript: %r", field_name, transcript)
@@ -180,9 +407,25 @@ async def _ask_for_schema_value(
             current_prompt=question,
             field_name=field_name,
             known_context=json.dumps(state.schema.to_dict(), ensure_ascii=False),
+            history=_recent_history(),
         )
         if clarification.is_question:
+            state.clarification_history.append({
+                "user": transcript,
+                "ai": clarification.answer,
+                "field": field_name,
+                "stage": "ask_schema_value",
+            })
             if clarification.answer:
+                try:
+                    await show_toast(
+                        page,
+                        text_zh=clarification.answer,
+                        kind="info",
+                        duration_ms=12000,
+                    )
+                except Exception:
+                    logger.debug("clarification toast failed", exc_info=True)
                 await speak_text(page, clarification.answer, language=language)
             await mark_listening(page, "listening")
             continue
@@ -190,9 +433,28 @@ async def _ask_for_schema_value(
         value = await _normalize_spoken_value(field_name, transcript, state)
         if value:
             break
+        # Validation failed — give a "I didn't catch that" hint before
+        # re-speaking the original question. Otherwise the user thinks
+        # the agent ignored them and keeps repeating themselves.
+        logger.info(
+            "normalize rejected transcript=%r for field=%s — re-asking",
+            transcript, field_name,
+        )
         await mark_listening(page, "retry")
-        await asyncio.sleep(0.5)
-        if attempt < 2:
+        await asyncio.sleep(0.4)
+        if attempt < MAX_CLARIFY_TURNS - 1:
+            try:
+                retry_hint = t("normalize_retry_hint", language)
+                await show_toast(
+                    page,
+                    text_zh=retry_hint,
+                    kind="info",
+                    duration_ms=4000,
+                )
+                await speak_text(page, retry_hint, language=language)
+            except Exception:
+                logger.debug("retry hint failed", exc_info=True)
+            await asyncio.sleep(0.3)
             await speak_text(page, question, language=language)
 
     if not value:
@@ -215,14 +477,35 @@ async def _wait_for_answer_or_clarify(
     field_name: str,
     explanation: str = "",
     allowed_values: Optional[list[str]] = None,
-    timeout_s: float = 25.0,
+    timeout_s: float = 300.0,
 ) -> str:
-    """Wait for an answer; if the user asks a question, answer it and keep listening."""
+    """Wait for an answer; if the user asks a question, answer it and keep listening.
+
+    Multi-turn conversation: history is threaded through so Haiku gives
+    context-aware follow-up answers. Up to MAX_CLARIFY_TURNS back-and-forth
+    rounds before we stop and let the field be skipped.
+
+    The AI's answer is BOTH spoken (TTS) and shown as a toast so the user
+    can read what was said even if audio fails.
+    """
     language = getattr(state, "language", "zh")
-    for _ in range(3):
+    # Use cross-stage history so Haiku sees prior Q&A from earlier pages.
+    # Cap at the last 8 turns so token cost stays bounded.
+    def _recent_history() -> list[ClarifyingTurn]:
+        recent = state.clarification_history[-8:]
+        return [
+            ClarifyingTurn(user_utterance=t["user"], ai_answer=t["ai"])
+            for t in recent
+        ]
+
+    for turn_idx in range(MAX_CLARIFY_TURNS):
         try:
             transcript = await asyncio.wait_for(state.voice_queue.get(), timeout=timeout_s)
         except asyncio.TimeoutError:
+            logger.info(
+                "clarification timeout for field=%s after %d turns",
+                field_name, turn_idx,
+            )
             return ""
         await mark_listening(page, "thinking")
         clarification = await answer_if_clarifying_question(
@@ -233,13 +516,36 @@ async def _wait_for_answer_or_clarify(
             explanation=explanation,
             allowed_values=allowed_values,
             known_context=json.dumps(state.schema.to_dict(), ensure_ascii=False),
+            history=_recent_history(),
         )
         if clarification.is_question:
+            # Persist across stages so follow-ups on later pages see context.
+            state.clarification_history.append({
+                "user": transcript,
+                "ai": clarification.answer,
+                "field": field_name,
+                "stage": "wait_for_answer",
+            })
             if clarification.answer:
+                # Visible AND audible — toast renders even if TTS fails
+                # (no API key, mute, etc.) so user always sees the answer.
+                try:
+                    await show_toast(
+                        page,
+                        text_zh=clarification.answer,
+                        kind="info",
+                        duration_ms=12000,
+                    )
+                except Exception:
+                    logger.debug("clarification toast failed", exc_info=True)
                 await speak_text(page, clarification.answer, language=language)
             await mark_listening(page, "listening")
             continue
         return transcript
+    logger.warning(
+        "clarification loop hit MAX_CLARIFY_TURNS=%d for field=%s — giving up",
+        MAX_CLARIFY_TURNS, field_name,
+    )
     return ""
 
 
@@ -420,7 +726,9 @@ async def handle_provisions_agreement(
     await asyncio.sleep(pacing.in_flow_listening_visible_s)
 
     # Wait for the user's transcript (live mic) or the scripted drop.
-    timeout_s = 30.0 if use_live_voice else 3.0
+    # Live voice gets 5min so demo narration doesn't auto-continue; scripted
+    # feeder is deterministic and fast, so 3s is plenty for the mock path.
+    timeout_s = 300.0 if use_live_voice else 3.0
     transcript_zh = ""
     transcript_zh = await _wait_for_answer_or_clarify(
         page,
@@ -436,33 +744,51 @@ async def handle_provisions_agreement(
     else:
         logger.warning("provisions agreement timeout — defaulting to yes")
 
-    # Resolve to enum: agree-words = yes, deny-words = no
-    agree_words = ("同意", "好的", "可以", "好", "yes", "agree", "ok", "对")
-    deny_words = ("不同意", "不", "no", "拒绝")
-    value = None
+    # Resolve to enum: agree-words = yes, deny-words = no.
+    # Check deny-words FIRST because "不同意" contains "同意" — agree-words
+    # would match a denial otherwise.
+    agree_words = ("同意", "好的", "可以", "yes", "agree", "ok", "对", "好")
+    deny_words = ("不同意", "拒绝", "no", "不")
     text = transcript_zh.lower() if transcript_zh else ""
-    if any(kw in text or kw in transcript_zh for kw in deny_words):
+    if transcript_zh and any(kw in text or kw in transcript_zh for kw in deny_words):
         value = "no"
-    elif any(kw in text or kw in transcript_zh for kw in agree_words):
+    elif transcript_zh and any(kw in text or kw in transcript_zh for kw in agree_words):
         value = "yes"
-
-    if value == "yes":
-        await mark_listening(page, "recorded")
     else:
-        # Default to yes for demo continuity (user can pick No by saying 不同意)
-        value = value or "yes"
-        await mark_listening(page, "recorded")
+        # No clear signal (timeout, garbled transcript) — default to yes for
+        # demo continuity. The Bug 2 fix honors explicit user "no" but won't
+        # punish silence.
+        value = "yes"
+        logger.info("provisions: no clear yes/no in transcript — defaulting to yes")
+
+    await mark_listening(page, "recorded")
     await asyncio.sleep(pacing.in_flow_recorded_hold_s)
     await hide_overlay(page)
     if feeder_task is not None:
         feeder_task.cancel()
 
-    # Now actually pick Yes
-    await page.check("#userSelectionYes")
-    state.schema.provisions_agreed = "yes"
+    # Honor the user's actual answer. If they said no, click No; otherwise Yes.
+    # IL SOS uses paired radios — if the No selector isn't there we fall back
+    # to Yes and log so the demo doesn't hard-stop on a selector miss.
+    if value == "no" and await page.query_selector("#userSelectionNo"):
+        await page.check("#userSelectionNo")
+        state.schema.provisions_agreed = "no"
+        logger.info("provisions: user said no — checked #userSelectionNo")
+    else:
+        if value == "no":
+            logger.warning(
+                "provisions: user said no but #userSelectionNo not found on page; "
+                "falling back to Yes so the demo can continue"
+            )
+        await page.check("#userSelectionYes")
+        state.schema.provisions_agreed = "yes"
     await asyncio.sleep(pacing.in_flow_after_fill_pause_s)
     await _click_continue(page)
-    return PageHandlerResult("provisions-agreement", "in-flow pause + checked Yes", True)
+    return PageHandlerResult(
+        "provisions-agreement",
+        f"in-flow pause + checked {state.schema.provisions_agreed}",
+        True,
+    )
 
 
 async def handle_entity_name(
@@ -562,6 +888,20 @@ async def handle_registered_agent(
             allowed_values=list(field.enum_values or ()),
         )
         logger.info("registered-agent transcript: %r", transcript)
+
+        # CAPTURE the answer into the schema so the autofill pass below
+        # doesn't ask the user a second time. Normalize via Haiku where
+        # available so spoken phrasing ("yeah, me — Wei Zhang") becomes
+        # the actual value to write.
+        if transcript:
+            normalized = await _normalize_spoken_value(
+                "registered_agent_name", transcript, state
+            )
+            if normalized:
+                state.schema.registered_agent_name = normalized
+                logger.info(
+                    "registered_agent_name set from voice: %r", normalized
+                )
 
         await mark_listening(page, "recorded")
         await asyncio.sleep(pacing.in_flow_recorded_hold_s)

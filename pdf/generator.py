@@ -147,14 +147,14 @@ async def _cli():
 
     schema = LLCSchema(
         entity_name="Shu Xiang LLC",
-        principal_address="123 W Randolph St",
+        principal_address="939 East 54th St",
         principal_city="Chicago",
-        principal_zip="60601",
+        principal_zip="60615",
         management_structure="member-managed",
         duration="perpetual",
-        registered_agent_name="Wei Zhang",
-        registered_agent_address="123 W Randolph St, Chicago IL 60601",
-        organizer_name="Wei Zhang",
+        registered_agent_name="John Zhang",
+        registered_agent_address="939 East 54th St, Chicago IL 60615",
+        organizer_name="John Zhang",
         organizer_email="wei@shuxiangchicago.com",
     )
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("out/test-pdf.pdf")

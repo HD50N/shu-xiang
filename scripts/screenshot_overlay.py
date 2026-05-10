@@ -48,8 +48,8 @@ async def main():
             fields={
                 "Entity Name": "Shu Xiang LLC",
                 "City": "Chicago",
-                "Address": "123 W Randolph St",
-                "Organizer": "Wei Zhang",
+                "Address": "939 East 54th St",
+                "Organizer": "John Zhang",
                 "Email": "wei@shuxiangchicago.com",
                 "Management": "—",
             },

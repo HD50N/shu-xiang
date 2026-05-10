@@ -50,16 +50,16 @@ SEED_VALUES = {
     "dba": "Shu Xiang Kitchen",
     "doing business as": "Shu Xiang Kitchen",
 
-    "principal place": "123 W Randolph St",
-    "address1": "123 W Randolph St",
-    "street": "123 W Randolph St",
+    "principal place": "939 East 54th St",
+    "address1": "939 East 54th St",
+    "street": "939 East 54th St",
     "city": "Chicago",
-    "zip": "60601",
+    "zip": "60615",
     "state": "IL",
-    "address": "123 W Randolph St",
+    "address": "939 East 54th St",
 
-    "organizer name": "Wei Zhang",
-    "applicant name": "Wei Zhang",
+    "organizer name": "John Zhang",
+    "applicant name": "John Zhang",
     "email": "wei@shuxiangchicago.com",
     "phone": "3125551212",
 }

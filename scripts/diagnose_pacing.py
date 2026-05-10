@@ -152,8 +152,8 @@ async def main():
 
         # ── 10: submit ────────────────────────────────────────
         await page.select_option("#duration", "perpetual")
-        await page.fill("#registered_agent_name", "Wei Zhang")
-        await page.fill("#registered_agent_address", "123 W Randolph St, Chicago IL 60601")
+        await page.fill("#registered_agent_name", "John Zhang")
+        await page.fill("#registered_agent_address", "939 East 54th St, Chicago IL 60615")
         await page.click("#submit-btn")
         await asyncio.sleep(1.2)
         await page.screenshot(path=str(out / "diag-10-submit.png"))

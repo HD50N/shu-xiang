@@ -47,7 +47,7 @@ _AUDIO_CACHE_DIR = Path(__file__).resolve().parent.parent / "assets" / "audio_ca
 # Hard cap on turns. Sonnet can FINISH earlier; this stops a wandering
 # conversation from blowing the demo budget.
 MAX_TURNS = 12
-DEFAULT_LISTEN_TIMEOUT_S = 25.0
+DEFAULT_LISTEN_TIMEOUT_S = 300.0  # 5 min — generous so narration during demo doesn't auto-continue
 
 
 # ──────────────────────────────────────────────────────────────────────

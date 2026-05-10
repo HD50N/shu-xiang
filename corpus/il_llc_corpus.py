@@ -44,14 +44,14 @@ class FieldSpec:
 # Hardcoded so the demo never depends on user typing during recording.
 DEMO_SEED = {
     "entity_name": "Shu Xiang LLC",
-    "principal_address": "123 W Randolph St",
+    "principal_address": "939 East 54th St",
     "principal_city": "Chicago",
-    "principal_zip": "60601",
+    "principal_zip": "60615",
     "management_structure": None,  # judgment — set during in-flow pause
     "duration": "perpetual",  # default for restaurants, set in pre-flight
-    "registered_agent_name": "Wei Zhang",  # set in pre-flight
-    "registered_agent_address": "123 W Randolph St, Chicago IL 60601",
-    "organizer_name": "Wei Zhang",
+    "registered_agent_name": "John Zhang",  # set in pre-flight
+    "registered_agent_address": "939 East 54th St, Chicago IL 60615",
+    "organizer_name": "John Zhang",
     "organizer_email": "wei@shuxiangchicago.com",
     # Storefront brand — used by REG-1 sales tax registration walkthrough
     "dba": "Shu Xiang Kitchen",

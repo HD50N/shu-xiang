@@ -85,6 +85,13 @@ class DemoState:
     # Set by run_phase1_conversation() in live mode, or DEMO_PROFILE otherwise.
     business_profile: Any = None
     language: str = "zh"
+    # Cross-stage clarification history — every (user_utterance, ai_answer)
+    # turn from any clarification prompt anywhere in the demo. Threaded into
+    # Haiku calls so follow-up questions on later pages get context-aware
+    # answers (Haiku sees the running thread, doesn't repeat itself).
+    # Each entry is a dict: {"user": str, "ai": str, "field": str, "stage": str}.
+    # Bounded by readers (last N turns) — append-only here.
+    clarification_history: list = field(default_factory=list)
 
     def seed_with_demo_data(self) -> None:
         """Populate from corpus.DEMO_SEED — used in recording mode."""
