@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{ entity_name }} — LLC Filing Summary</title>
+  <style>
+    /* Locked typography from design review:
+       English serif (Charter / Times) for legal weight,
+       Noto Serif SC for parallel weight in Chinese.
+       Noto Sans SC for the footer / small text. */
+
+    @font-face {
+      font-family: 'Noto Sans SC';
+      src: local('Noto Sans SC'),
+           url('fonts/NotoSansSC-Regular.otf') format('opentype');
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Noto Sans SC';
+      src: local('Noto Sans SC Bold'),
+           url('fonts/NotoSansSC-Bold.otf') format('opentype');
+      font-weight: 700;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Noto Serif SC';
+      src: local('Noto Serif SC'),
+           url('fonts/NotoSerifSC-Regular.otf') format('opentype');
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Noto Serif SC';
+      src: local('Noto Serif SC Bold'),
+           url('fonts/NotoSerifSC-Bold.otf') format('opentype');
+      font-weight: 700;
+      font-display: swap;
+    }
+
+    @page {
+      size: Letter;
+      margin: 0.75in;
+    }
+
+    :root {
+      --text-primary: #1a1a1a;
+      --text-secondary: #4a5568;
+      --text-muted: #9ca3af;
+      --rule: #d1d5db;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      color: var(--text-primary);
+    }
+    body {
+      font-family: Charter, 'Times New Roman', Times, serif;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--rule);
+      margin-bottom: 28px;
+    }
+    .header .name {
+      font-size: 24px;
+      font-weight: 400;
+      letter-spacing: -0.01em;
+    }
+    .header .date {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+
+    .body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5in;
+    }
+
+    .col h2 {
+      font-size: 14px;
+      font-weight: 400;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-primary);
+      margin: 0 0 16px 0;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--rule);
+    }
+    .col-zh h2 {
+      font-family: 'Noto Serif SC', serif;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: none;
+      font-size: 14px;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+    .field .label {
+      font-size: 10px;
+      font-style: italic;
+      color: var(--text-secondary);
+      letter-spacing: 0.02em;
+      margin-bottom: 2px;
+    }
+    .field .value {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-primary);
+    }
+
+    .col-zh .judgment {
+      font-family: 'Noto Serif SC', serif;
+      font-size: 12px;
+      line-height: 1.7;
+      margin-bottom: 16px;
+      color: var(--text-primary);
+    }
+    .col-zh .judgment .label {
+      font-family: 'Noto Sans SC', sans-serif;
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .footer {
+      position: fixed;
+      bottom: 0.4in;
+      left: 0.75in;
+      right: 0.75in;
+      text-align: center;
+      font-family: 'Noto Sans SC', sans-serif;
+      font-size: 10px;
+      color: var(--text-muted);
+      padding-top: 10px;
+      border-top: 1px solid var(--rule);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="name">{{ entity_name }}</div>
+    <div class="date">Filed {{ filing_date }}</div>
+  </div>
+
+  <div class="body">
+
+    <section class="col col-en">
+      <h2>Filed Particulars</h2>
+      {% for f in english_fields %}
+      <div class="field">
+        <div class="label">{{ f.label }}</div>
+        <div class="value">{{ f.value }}</div>
+      </div>
+      {% endfor %}
+    </section>
+
+    <section class="col col-zh">
+      <h2>中文说明</h2>
+      {% for j in judgment_explanations %}
+      <div class="judgment">
+        <div class="label">{{ j.label_zh }}</div>
+        {{ j.body_zh }}
+      </div>
+      {% endfor %}
+    </section>
+
+  </div>
+
+  <div class="footer">
+    Filed via Shu Xiang • Save this for your records · 请保存好作为您的记录
+  </div>
+
+</body>
+</html>

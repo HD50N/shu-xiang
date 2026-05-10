@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Illinois Secretary of State — LLC-1.36 Articles of Organization</title>
+  <style>
+    /* Intentionally bureaucratic 1990s-ish IL SOS aesthetic.
+       Matches the real site's blocky, low-design feel so the modern overlay
+       creates the "old bureaucracy meeting modern AI" contrast that's part of the wow. */
+    :root {
+      --ink: #1a1a1a;
+      --link: #003366;
+      --rule: #999;
+      --form-border: #777;
+      --bg: #f4f1ea;
+      --header: #003366;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Times New Roman', Times, serif;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 14px;
+    }
+    .gov-banner {
+      background: var(--header);
+      color: #fff;
+      padding: 8px 24px;
+      font-size: 12px;
+      font-family: Verdana, Arial, sans-serif;
+    }
+    .gov-banner b { font-size: 13px; }
+    header.title-bar {
+      background: #fff;
+      border-bottom: 2px solid var(--header);
+      padding: 16px 32px;
+    }
+    header.title-bar h1 {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 22px;
+      margin: 0;
+      color: var(--header);
+    }
+    header.title-bar .subtitle {
+      font-size: 13px;
+      color: #555;
+      margin-top: 4px;
+    }
+    main {
+      max-width: 820px;
+      margin: 24px auto;
+      background: #fff;
+      border: 1px solid var(--rule);
+      padding: 32px 40px;
+    }
+    h2.section-title {
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 4px;
+      margin: 32px 0 16px;
+    }
+    h2.section-title:first-of-type { margin-top: 0; }
+    .form-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .form-row label {
+      flex: 0 0 200px;
+      padding-top: 6px;
+      font-size: 13px;
+      font-weight: bold;
+    }
+    .form-row label .required { color: #b00; }
+    .form-row .field {
+      flex: 1;
+    }
+    .form-row .field input[type="text"],
+    .form-row .field input[type="email"],
+    .form-row .field input[type="tel"],
+    .form-row .field select {
+      width: 100%;
+      padding: 6px 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      border: 1px solid var(--form-border);
+      background: #fffefb;
+    }
+    .form-row .field .help {
+      display: block;
+      font-size: 11px;
+      color: #666;
+      margin-top: 3px;
+      font-style: italic;
+    }
+    .radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 4px 2px;
+    }
+    .radio-group label {
+      flex: unset;
+      padding: 0;
+      font-weight: normal;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .radio-group input { margin-right: 6px; }
+    .legal {
+      font-size: 11px;
+      color: #555;
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px dotted var(--rule);
+      line-height: 1.5;
+    }
+    .submit-bar {
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 2px solid var(--header);
+      display: flex;
+      gap: 12px;
+    }
+    .submit-bar button {
+      padding: 10px 28px;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      background: var(--header);
+      color: #fff;
+      border: 1px solid #001f4d;
+      cursor: pointer;
+    }
+    .submit-bar button.secondary {
+      background: #ddd;
+      color: var(--ink);
+      border: 1px solid #999;
+    }
+    .submit-bar button:hover { opacity: 0.92; }
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="gov-banner">
+    <b>An official website of the State of Illinois</b> — secure .gov | Office of the Secretary of State
+  </div>
+  <header class="title-bar">
+    <h1>Articles of Organization — Limited Liability Company (LLC-1.36)</h1>
+    <div class="subtitle">File a new domestic limited liability company in the State of Illinois.</div>
+  </header>
+
+  <main>
+    <form id="llc-form" onsubmit="return false">
+
+      <h2 class="section-title">1 — Entity Information</h2>
+
+      <div class="form-row">
+        <label for="entity_name">Limited Liability Company Name <span class="required">*</span></label>
+        <div class="field">
+          <input type="text" id="entity_name" name="entity_name" placeholder="" autocomplete="off" />
+          <span class="help">Must contain "Limited Liability Company", "LLC", or "L.L.C." Section 1-10.</span>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label for="principal_address">Principal Place of Business <span class="required">*</span></label>
+        <div class="field">
+          <input type="text" id="principal_address" name="principal_address" placeholder="Street address" autocomplete="off" />
+          <div class="row-2" style="margin-top: 6px;">
+            <input type="text" id="principal_city" name="principal_city" placeholder="City" autocomplete="off" />
+            <input type="text" id="principal_zip" name="principal_zip" placeholder="ZIP" autocomplete="off" />
+          </div>
+          <span class="help">Must be a street address in Illinois. PO Boxes not accepted.</span>
+        </div>
+      </div>
+
+      <h2 class="section-title">2 — Management & Duration</h2>
+
+      <div class="form-row">
+        <label>Management Structure <span class="required">*</span></label>
+        <div class="field">
+          <div class="radio-group" id="management_structure_group">
+            <label><input type="radio" name="management_structure" value="member-managed" /> Member-Managed (the LLC will be managed by its members)</label>
+            <label><input type="radio" name="management_structure" value="manager-managed" /> Manager-Managed (the LLC will be managed by one or more managers)</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label for="duration">Duration</label>
+        <div class="field">
+          <select id="duration" name="duration">
+            <option value="">— select —</option>
+            <option value="perpetual">Perpetual</option>
+            <option value="fixed">Fixed end date</option>
+          </select>
+        </div>
+      </div>
+
+      <h2 class="section-title">3 — Registered Agent</h2>
+
+      <div class="form-row">
+        <label for="registered_agent_name">Registered Agent Name <span class="required">*</span></label>
+        <div class="field">
+          <input type="text" id="registered_agent_name" name="registered_agent_name" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label for="registered_agent_address">Registered Office Address <span class="required">*</span></label>
+        <div class="field">
+          <input type="text" id="registered_agent_address" name="registered_agent_address" autocomplete="off" />
+          <span class="help">Must be a street address in Illinois.</span>
+        </div>
+      </div>
+
+      <h2 class="section-title">4 — Organizer</h2>
+
+      <div class="form-row">
+        <label for="organizer_name">Organizer Name <span class="required">*</span></label>
+        <div class="field">
+          <input type="text" id="organizer_name" name="organizer_name" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label for="organizer_email">Organizer Email <span class="required">*</span></label>
+        <div class="field">
+          <input type="email" id="organizer_email" name="organizer_email" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="legal">
+        <strong>Penalty of perjury.</strong> The undersigned affirms, under penalty of perjury, that the facts stated herein are true and that all
+        Illinois statutory requirements have been complied with. Filing fee: $150. Section 5-5 of the Illinois Limited Liability Company Act.
+      </div>
+
+      <div class="submit-bar">
+        <button type="button" id="submit-btn">File Articles of Organization</button>
+        <button type="button" class="secondary" id="save-draft">Save Draft</button>
+      </div>
+
+    </form>
+  </main>
+
+  <script>
+    // Lightweight local "submit" simulation that surfaces the same confirmation
+    // beat the real IL SOS site does. Used by the demo path.
+    document.getElementById("submit-btn").addEventListener("click", () => {
+      const data = {};
+      document.querySelectorAll("#llc-form input, #llc-form select").forEach(el => {
+        if (el.type === "radio") { if (el.checked) data[el.name] = el.value; }
+        else { data[el.name] = el.value; }
+      });
+      const main = document.querySelector("main");
+      main.innerHTML = `
+        <h2 class="section-title">Filing Confirmation</h2>
+        <p style="font-size: 14px; line-height: 1.6;">
+          Your Articles of Organization for <strong>${data.entity_name || "(unnamed entity)"}</strong> have been received by the
+          Illinois Secretary of State.
+        </p>
+        <p style="font-size: 14px; line-height: 1.6;">
+          Filing number: <code>FAKE-${Math.floor(Math.random() * 9000000 + 1000000)}</code><br>
+          Filing fee: $150.00 (paid)<br>
+          Effective date: ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+        </p>
+        <div class="legal">
+          A certified copy will be available within 5-7 business days at <a href="#">cyberdrive.ilsos.gov</a>.
+        </div>
+      `;
+      document.body.dataset.shuxiangSubmitted = "true";
+    });
+  </script>
+</body>
+</html>

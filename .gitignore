@@ -1,0 +1,48 @@
+# Environment & secrets
+.env
+.env.local
+*.key
+.secrets
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+.uv/
+uv.lock
+
+# Playwright
+.playwright/
+
+# Demo recordings
+recordings/
+*.mov
+*.mp4
+takes/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Generated PDFs (we ship the template, not the outputs)
+out/*.pdf
+out/
+
+# Cached audio
+assets/audio_cache/
